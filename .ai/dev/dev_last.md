@@ -1,16 +1,22 @@
-# 最后操作状态 - 2026-04-25 03:00
+# 最后操作状态 - 2026-04-25 03:23
 
-## 阶段1 已完成并归档
+## 未解决问题
 
-完整功能清单见 `.ai/plan/phase1/index.md`。
+### 删除线/涂色高度对齐
 
-## 核心修复（本次会话）
+**现象**：阅读模式下，不同行（或同一行不同文本段）的删除线 Y 位置不一致，涂色背景块高度也不一致。
 
-- 类型锁定：手动点类型按钮后选区不再覆盖 `_activeType`
-- `removeWhere` 移除：`_applyColor` 中 `expand` 已正确处理拆分，不需要前置删除
-- 删除线回归 `buildTextSpan`：遮盖层方案因 `RichText` 与 `EditableText` 布局差异导致位置偏移，回归统一渲染通道
-- annotation 模型支持独立 type+colorHex
+**已尝试方案**（均未解决）：
+1. `TextStyle(height: 1.6)` — 用户反馈"字形诡异"
+2. `StrutStyle(forceStrutHeight: true)` — 无效
+3. `StrutStyle(forceStrutHeight: true, height: 1.6)` — 无效
+4. `TextStyle.height` + `StrutStyle` 同时设置 — 无效
+5. `buildTextSpan` 相邻同样式片段合并，减少文本运行数 — 无效
 
-## 已知限制
+**猜测根因**：Flutter `EditableText` 内部 `TextPainter` 对不同 `TextSpan` 子节点的字体度量独立计算，导致中英文混排时段落内各文本段的 ascent/descent 存在微小差异，`TextDecoration` 和 `backgroundColor` 的渲染位置依赖这些度量而产生偏移。
 
-Flutter `decorationColor` 单一颜色限制，下划线与删除线同时存在时共享颜色。
+**建议方向**：可能需要放弃 `TextField` + `buildTextSpan` 方案，改用独立的 `RichText` + `SelectionArea` 或者自定义 `RenderBox` 渲染标注。
+
+## 阶段1 其他功能
+
+完整功能清单见 `.ai/plan/phase1/index.md`。其他功能均正常。

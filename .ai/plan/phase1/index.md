@@ -96,3 +96,4 @@
 ## 已知限制
 
 - Flutter `TextStyle.decorationColor` 只支持单一颜色。同一段文字的下划线和删除线共享颜色（以最后应用的标注颜色为准）。涂色使用 `backgroundColor` 独立通道不受影响。
+- **⚠ 未解决：标注渲染高度对齐** — 中英文混排时，删除线 Y 位置和涂色背景块高度在不同行/文本段间不一致。已尝试 StrutStyle / TextStyle.height / 片段合并等方案均无效。疑似 `EditableText` 内 `TextPainter` 对不同 `TextSpan` 子节点独立计算字体度量所致。
