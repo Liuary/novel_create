@@ -224,7 +224,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             maxLines: null,
             expands: true,
             textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(fontSize: 16),
+            style: const TextStyle(fontSize: 16, height: 1.6),
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding: EdgeInsets.all(24),
@@ -272,7 +272,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                     maxLines: null,
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
-                    style: const TextStyle(fontSize: 16),
+                    style: const TextStyle(fontSize: 16, height: 1.6),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(24),
