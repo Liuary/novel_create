@@ -105,7 +105,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     return Column(
       children: [
         _buildTitleBar(),
-        Expanded(child: _isReadingMode ? _buildReadingMode() : _buildWritingMode()),
+        Expanded(
+          child: _isReadingMode ? _buildReadingMode() : _buildWritingMode(),
+        ),
       ],
     );
   }
@@ -121,7 +123,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                 ? TextField(
                     controller: _titleController,
                     autofocus: true,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       isDense: true,
@@ -137,8 +142,13 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                         _titleController.text = _currentChapter?.title ?? '';
                       });
                     },
-                    child: Text(title,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
           ),
           if (_isEditingTitle)
@@ -191,7 +201,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       _writeController.text = _readController.text;
     } else {
       _readController.text = _writeController.text;
-      _readController.annotations = List.from(_currentChapter?.annotations ?? []);
+      _readController.annotations = List.from(
+        _currentChapter?.annotations ?? [],
+      );
     }
     setState(() {
       _isReadingMode = toReading;
@@ -225,7 +237,11 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             expands: true,
             textAlignVertical: TextAlignVertical.top,
             style: const TextStyle(fontSize: 16),
-            strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
+            strutStyle: const StrutStyle(
+              fontSize: 16,
+              height: 1.6,
+              forceStrutHeight: true,
+            ),
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding: EdgeInsets.all(24),
@@ -240,7 +256,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   // ==================== 阅读模式 ====================
 
   Widget _buildReadingMode() {
-    final hasSelection = _readController.selection.isValid &&
+    final hasSelection =
+        _readController.selection.isValid &&
         !_readController.selection.isCollapsed;
     final showToolbar = hasSelection || _selectionActive;
 
@@ -291,7 +308,11 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       expands: true,
                       textAlignVertical: TextAlignVertical.top,
                       style: const TextStyle(fontSize: 16),
-                      strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
+                      strutStyle: const StrutStyle(
+                        fontSize: 16,
+                        height: 1.6,
+                        forceStrutHeight: true,
+                      ),
                       decoration: const InputDecoration(
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.all(24),
@@ -377,10 +398,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       final areaHeight = areaBox.size.height;
 
       _toolbarBelow = selTop < areaHeight / 2;
-      _toolbarOffset = Offset(
-        selMidX,
-        _toolbarBelow ? selBottom : selTop,
-      );
+      _toolbarOffset = Offset(selMidX, _toolbarBelow ? selBottom : selTop);
     } catch (_) {
       // 计算失败时使用默认位置
     }
@@ -402,9 +420,21 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildTypeButton(AnnotationType.underline, Icons.format_underline, '下划线'),
-              _buildTypeButton(AnnotationType.strikethrough, Icons.strikethrough_s, '删除线'),
-              _buildTypeButton(AnnotationType.highlight, Icons.format_color_fill, '涂色'),
+              _buildTypeButton(
+                AnnotationType.underline,
+                Icons.format_underline,
+                '下划线',
+              ),
+              _buildTypeButton(
+                AnnotationType.strikethrough,
+                Icons.strikethrough_s,
+                '删除线',
+              ),
+              _buildTypeButton(
+                AnnotationType.highlight,
+                Icons.format_color_fill,
+                '涂色',
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -434,10 +464,13 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       ),
                     ),
                     child: isActive
-                        ? Icon(Icons.check, size: 14,
+                        ? Icon(
+                            Icons.check,
+                            size: 14,
                             color: color.computeLuminance() > 0.5
                                 ? Colors.black87
-                                : Colors.white)
+                                : Colors.white,
+                          )
                         : null,
                   ),
                 );
@@ -474,8 +507,11 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             width: 44,
             height: 36,
             alignment: Alignment.center,
-            child: Icon(icon, size: 22,
-                color: isActive ? scheme.primary : scheme.onSurfaceVariant),
+            child: Icon(
+              icon,
+              size: 22,
+              color: isActive ? scheme.primary : scheme.onSurfaceVariant,
+            ),
           ),
         ),
       ),
@@ -527,20 +563,29 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         _activeType = _pickMostFrequentType(typeCount);
       }
 
-      final sameTypeAnnotations = annotations.where((a) => a.type == _activeType).toList();
+      final sameTypeAnnotations = annotations
+          .where((a) => a.type == _activeType)
+          .toList();
       final colorCount = <String, int>{};
       for (final a in sameTypeAnnotations) {
         if (a.colorHex != null) {
           colorCount[a.colorHex!] = (colorCount[a.colorHex!] ?? 0) + 1;
         }
       }
-      _activeColor = colorCount.isEmpty ? null : _pickMostFrequentColor(colorCount);
+      _activeColor = colorCount.isEmpty
+          ? null
+          : _pickMostFrequentColor(colorCount);
     });
   }
 
   void _updateActiveColorFromSelection(int start, int end) {
     final annotations = _readController.annotations
-        .where((a) => a.type == _activeType && a.startOffset < end && a.endOffset > start)
+        .where(
+          (a) =>
+              a.type == _activeType &&
+              a.startOffset < end &&
+              a.endOffset > start,
+        )
         .toList();
     final colorCount = <String, int>{};
     for (final a in annotations) {
@@ -549,7 +594,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       }
     }
     setState(() {
-      _activeColor = colorCount.isEmpty ? null : _pickMostFrequentColor(colorCount);
+      _activeColor = colorCount.isEmpty
+          ? null
+          : _pickMostFrequentColor(colorCount);
     });
   }
 
@@ -561,7 +608,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     candidates.sort((a, b) {
       final diff = (counts[b] ?? 0).compareTo(counts[a] ?? 0);
       if (diff != 0) return diff;
-      return annotationTypeOrder.indexOf(a).compareTo(annotationTypeOrder.indexOf(b));
+      return annotationTypeOrder
+          .indexOf(a)
+          .compareTo(annotationTypeOrder.indexOf(b));
     });
     return candidates.first;
   }
@@ -574,7 +623,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     candidates.sort((a, b) {
       final diff = (counts[b] ?? 0).compareTo(counts[a] ?? 0);
       if (diff != 0) return diff;
-      return annotationColorsHex.indexOf(a).compareTo(annotationColorsHex.indexOf(b));
+      return annotationColorsHex
+          .indexOf(a)
+          .compareTo(annotationColorsHex.indexOf(b));
     });
     return candidates.first;
   }
@@ -600,13 +651,15 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       return split;
     }).toList();
     // 添加新标记
-    _readController.annotations.add(Annotation(
-      id: _uuid.v4(),
-      type: _activeType,
-      colorHex: colorHex,
-      startOffset: start,
-      endOffset: end,
-    ));
+    _readController.annotations.add(
+      Annotation(
+        id: _uuid.v4(),
+        type: _activeType,
+        colorHex: colorHex,
+        startOffset: start,
+        endOffset: end,
+      ),
+    );
 
     setState(() => _activeColor = colorHex);
     _readController._rebuildText();
@@ -673,7 +726,11 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   // ==================== 加载章节 ====================
 
-  Future<void> _loadChapter(String bookId, String volumeId, String chapterId) async {
+  Future<void> _loadChapter(
+    String bookId,
+    String volumeId,
+    String chapterId,
+  ) async {
     setState(() => _isLoading = true);
     final storage = StorageService.instance;
     final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
@@ -697,7 +754,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         children: [
           Icon(Icons.auto_stories, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
-          Text(message, style: const TextStyle(color: Colors.grey, fontSize: 16)),
+          Text(
+            message,
+            style: const TextStyle(color: Colors.grey, fontSize: 16),
+          ),
         ],
       ),
     );
@@ -712,16 +772,19 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         children: [
           Icon(Icons.menu_book, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
-          Text(book.title,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          Text(
+            book.title,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
           if (book.author.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text('作者: ${book.author}',
-                style: const TextStyle(color: Colors.grey, fontSize: 14)),
+            Text(
+              '作者: ${book.author}',
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
+            ),
           ],
           const SizedBox(height: 24),
-          const Text('请在左侧选择一个章节开始编辑',
-              style: TextStyle(color: Colors.grey)),
+          const Text('请在左侧选择一个章节开始编辑', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
@@ -744,7 +807,9 @@ class _ModeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = isActive ? scheme.primary : scheme.onSurface.withValues(alpha: 0.4);
+    final color = isActive
+        ? scheme.primary
+        : scheme.onSurface.withValues(alpha: 0.4);
     return TextButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 16, color: color),
@@ -779,7 +844,9 @@ class _AnnotatedTextController extends TextEditingController {
     if (text.isEmpty) {
       return TextSpan(text: '', style: style);
     }
-    final baseStyle = (style ?? const TextStyle(fontSize: 16)).copyWith(height: 1.6);
+    final baseStyle = (style ?? const TextStyle(fontSize: 16)).copyWith(
+      height: 1.6,
+    );
     final segments = _buildSegments(text);
 
     // 合并相邻的相同样式片段，减少文本运行数量
@@ -844,15 +911,23 @@ class _AnnotatedTextController extends TextEditingController {
         }
       }
 
-      segments.add(_TextSegment(
-        text: segText,
-        hasUnderline: ulColor != null,
-        underlineColor: ulColor != null ? Color(int.parse('FF$ulColor', radix: 16)) : null,
-        hasStrikethrough: stColor != null,
-        strikethroughColor: stColor != null ? Color(int.parse('FF$stColor', radix: 16)) : null,
-        hasHighlight: hlColor != null,
-        highlightColor: hlColor != null ? Color(int.parse('FF$hlColor', radix: 16)) : null,
-      ));
+      segments.add(
+        _TextSegment(
+          text: segText,
+          hasUnderline: ulColor != null,
+          underlineColor: ulColor != null
+              ? Color(int.parse('FF$ulColor', radix: 16))
+              : null,
+          hasStrikethrough: stColor != null,
+          strikethroughColor: stColor != null
+              ? Color(int.parse('FF$stColor', radix: 16))
+              : null,
+          hasHighlight: hlColor != null,
+          highlightColor: hlColor != null
+              ? Color(int.parse('FF$hlColor', radix: 16))
+              : null,
+        ),
+      );
     }
     return segments;
   }
@@ -860,10 +935,7 @@ class _AnnotatedTextController extends TextEditingController {
   void _rebuildText() {
     // 重建文本：保持当前文字不变，但重绘标注
     final oldText = text;
-    value = TextEditingValue(
-      text: oldText,
-      selection: selection,
-    );
+    value = TextEditingValue(text: oldText, selection: selection);
   }
 }
 
@@ -895,14 +967,14 @@ class _TextSegment {
       highlightColor == other.highlightColor;
 
   _TextSegment mergedWith(_TextSegment other) => _TextSegment(
-        text: text + other.text,
-        hasUnderline: hasUnderline,
-        underlineColor: underlineColor,
-        hasStrikethrough: hasStrikethrough,
-        strikethroughColor: strikethroughColor,
-        hasHighlight: hasHighlight,
-        highlightColor: highlightColor,
-      );
+    text: text + other.text,
+    hasUnderline: hasUnderline,
+    underlineColor: underlineColor,
+    hasStrikethrough: hasStrikethrough,
+    strikethroughColor: strikethroughColor,
+    hasHighlight: hasHighlight,
+    highlightColor: highlightColor,
+  );
 }
 
 class _DecorationPainter extends CustomPainter {
@@ -965,7 +1037,8 @@ class _DecorationPainter extends CustomPainter {
       if (boxes.isEmpty) continue;
 
       final color = Color(
-          int.parse('FF${annotation.colorHex ?? "FFEB3B"}', radix: 16));
+        int.parse('FF${annotation.colorHex ?? "FFEB3B"}', radix: 16),
+      );
 
       for (final box in boxes) {
         final textPainterTop = box.top + scrollOffset;
@@ -986,7 +1059,7 @@ class _DecorationPainter extends CustomPainter {
             ..color = color
             ..strokeWidth = 1.0
             ..strokeCap = StrokeCap.round;
-          final y = top + (bottom - top) * 0.45;
+          final y = top + (bottom - top) * 0.55;
           canvas.drawLine(Offset(left, y), Offset(right, y), paint);
         }
       }
