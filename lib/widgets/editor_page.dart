@@ -265,19 +265,37 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               clipBehavior: Clip.hardEdge,
               children: [
                 Positioned.fill(
-                  child: TextField(
-                    focusNode: _readFocusNode,
-                    controller: _readController,
-                    scrollController: _readScrollController,
-                    readOnly: true,
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: const TextStyle(fontSize: 16),
-                    strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(24),
+                  child: CustomPaint(
+                    painter: _DecorationPainter(
+                      annotations: _readController.annotations,
+                      areaKey: _readAreaKey,
+                      scrollController: _readScrollController,
+                      textController: _readController,
+                      drawHighlights: true,
+                      drawStrikethroughs: false,
+                    ),
+                    foregroundPainter: _DecorationPainter(
+                      annotations: _readController.annotations,
+                      areaKey: _readAreaKey,
+                      scrollController: _readScrollController,
+                      textController: _readController,
+                      drawHighlights: false,
+                      drawStrikethroughs: true,
+                    ),
+                    child: TextField(
+                      focusNode: _readFocusNode,
+                      controller: _readController,
+                      scrollController: _readScrollController,
+                      readOnly: true,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: const TextStyle(fontSize: 16),
+                      strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.all(24),
+                      ),
                     ),
                   ),
                 ),
@@ -784,17 +802,6 @@ class _AnnotatedTextController extends TextEditingController {
             decorationColor: seg.underlineColor,
           );
         }
-        if (seg.hasStrikethrough) {
-          s = s.copyWith(
-            decoration: s.decoration != null
-                ? TextDecoration.combine([s.decoration!, TextDecoration.lineThrough])
-                : TextDecoration.lineThrough,
-            decorationColor: seg.strikethroughColor,
-          );
-        }
-        if (seg.hasHighlight) {
-          s = s.copyWith(backgroundColor: seg.highlightColor);
-        }
         return TextSpan(text: seg.text, style: s);
       }).toList(),
     );
@@ -896,4 +903,100 @@ class _TextSegment {
         hasHighlight: hasHighlight,
         highlightColor: highlightColor,
       );
+}
+
+class _DecorationPainter extends CustomPainter {
+  final List<Annotation> annotations;
+  final GlobalKey areaKey;
+  final ScrollController scrollController;
+  final TextEditingController textController;
+  final bool drawHighlights;
+  final bool drawStrikethroughs;
+
+  _DecorationPainter({
+    required this.annotations,
+    required this.areaKey,
+    required this.scrollController,
+    required this.textController,
+    required this.drawHighlights,
+    required this.drawStrikethroughs,
+  }) : super(repaint: Listenable.merge([scrollController, textController]));
+
+  static RenderEditable? _findRenderEditable(RenderObject root) {
+    if (root is RenderEditable) return root;
+    RenderEditable? found;
+    root.visitChildren((child) {
+      found ??= _findRenderEditable(child);
+    });
+    return found;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final areaBox = areaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (areaBox == null || !areaBox.attached) return;
+
+    final re = _findRenderEditable(areaBox);
+    if (re == null || !re.attached) return;
+
+    final reGlobal = re.localToGlobal(Offset.zero);
+    final areaGlobal = areaBox.localToGlobal(Offset.zero);
+    final reOffset = reGlobal - areaGlobal;
+
+    final lineHeight = re.preferredLineHeight;
+    final scrollOffset = scrollController.hasClients
+        ? scrollController.offset
+        : 0.0;
+
+    for (final annotation in annotations) {
+      final isHighlight = annotation.type == AnnotationType.highlight;
+      final isStrikethrough = annotation.type == AnnotationType.strikethrough;
+
+      if (isHighlight && !drawHighlights) continue;
+      if (isStrikethrough && !drawStrikethroughs) continue;
+      if (!isHighlight && !isStrikethrough) continue;
+
+      final selection = TextSelection(
+        baseOffset: annotation.startOffset,
+        extentOffset: annotation.endOffset,
+      );
+
+      final boxes = re.getBoxesForSelection(selection);
+      if (boxes.isEmpty) continue;
+
+      final color = Color(
+          int.parse('FF${annotation.colorHex ?? "FFEB3B"}', radix: 16));
+
+      for (final box in boxes) {
+        final textPainterTop = box.top + scrollOffset;
+        final lineIndex = (textPainterTop / lineHeight).round();
+        final normalizedTop = lineIndex * lineHeight - scrollOffset;
+        final normalizedBottom = normalizedTop + lineHeight;
+
+        final left = box.left + reOffset.dx;
+        final right = box.right + reOffset.dx;
+        final top = normalizedTop + reOffset.dy;
+        final bottom = normalizedBottom + reOffset.dy;
+
+        if (isHighlight) {
+          final paint = Paint()..color = color.withValues(alpha: 0.3);
+          canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), paint);
+        } else if (isStrikethrough) {
+          final paint = Paint()
+            ..color = color
+            ..strokeWidth = 2.0
+            ..strokeCap = StrokeCap.round;
+          final y = top + (bottom - top) * 0.45;
+          canvas.drawLine(Offset(left, y), Offset(right, y), paint);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DecorationPainter oldDelegate) {
+    return annotations != oldDelegate.annotations ||
+        drawHighlights != oldDelegate.drawHighlights ||
+        drawStrikethroughs != oldDelegate.drawStrikethroughs;
+  }
 }
