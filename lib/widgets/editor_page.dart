@@ -984,7 +984,7 @@ class _DecorationPainter extends CustomPainter {
         } else if (isStrikethrough) {
           final paint = Paint()
             ..color = color
-            ..strokeWidth = 2.0
+            ..strokeWidth = 1.0
             ..strokeCap = StrokeCap.round;
           final y = top + (bottom - top) * 0.45;
           canvas.drawLine(Offset(left, y), Offset(right, y), paint);
