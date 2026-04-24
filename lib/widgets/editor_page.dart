@@ -224,8 +224,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             maxLines: null,
             expands: true,
             textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(fontSize: 16, height: 1.6),
-            strutStyle: const StrutStyle(fontSize: 16, forceStrutHeight: true),
+            style: const TextStyle(fontSize: 16),
+            strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding: EdgeInsets.all(24),
@@ -273,8 +273,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                     maxLines: null,
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
-                    style: const TextStyle(fontSize: 16, height: 1.6),
-                    strutStyle: const StrutStyle(fontSize: 16, forceStrutHeight: true),
+                    style: const TextStyle(fontSize: 16),
+                    strutStyle: const StrutStyle(fontSize: 16, height: 1.6, forceStrutHeight: true),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(24),
@@ -624,12 +624,12 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   void _autoSaveAnnotations() {
     _currentChapter?.annotations = List.from(_readController.annotations);
-    _saveCurrentChapter();
+    _saveCurrentChapter(silent: true);
   }
 
   // ==================== 保存 ====================
 
-  Future<void> _saveCurrentChapter() async {
+  Future<void> _saveCurrentChapter({bool silent = false}) async {
     final bookId = ref.read(currentBookIdProvider);
     final volumeId = ref.read(currentVolumeIdProvider);
     final chapterId = ref.read(currentChapterIdProvider);
@@ -646,7 +646,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final storage = StorageService.instance;
     await storage.saveChapter(bookId, volumeId, _currentChapter!);
 
-    if (mounted) {
+    if (!silent && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('保存成功'), duration: Duration(seconds: 1)),
       );
