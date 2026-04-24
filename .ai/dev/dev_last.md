@@ -1,12 +1,16 @@
-# 最后操作状态 - 2026-04-25
+# 最后操作状态 - 2026-04-25 03:00
 
-## 最新改动
+## 阶段1 已完成并归档
 
-### UI 体验修复
-1. 浮动标注工具栏：上层改为 `spaceEvenly` 对齐消除空隙，类型按钮统一 44x36 容器+22px 图标
-2. 清除按钮：白底改为 outline 边框 + 红色 X 图标
-3. 滚动条：TextField 外挂 `Scrollbar(thumbVisibility: true)`，分离滚动区域与文本光标
-4. 字体：移除 `height: 2.0`，使用系统默认行高
-5. 字数统计：标题栏新增实时字数显示
+完整功能清单见 `.ai/plan/phase1/index.md`。
 
-flutter analyze: 0 issues
+## 核心修复（本次会话）
+
+- 类型锁定：手动点类型按钮后选区不再覆盖 `_activeType`
+- `removeWhere` 移除：`_applyColor` 中 `expand` 已正确处理拆分，不需要前置删除
+- 删除线回归 `buildTextSpan`：遮盖层方案因 `RichText` 与 `EditableText` 布局差异导致位置偏移，回归统一渲染通道
+- annotation 模型支持独立 type+colorHex
+
+## 已知限制
+
+Flutter `decorationColor` 单一颜色限制，下划线与删除线同时存在时共享颜色。
