@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/chapter.dart';
@@ -33,8 +34,21 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   String? _activeColor;
 
   bool _selectionActive = false;
+  Offset _toolbarOffset = Offset.zero;
+  bool _toolbarBelow = true;
 
   int _wordCount = 0;
+  final _readAreaKey = GlobalKey();
+  RenderEditable? _cachedRenderEditable;
+
+  RenderEditable? _findRenderEditable(RenderObject root) {
+    if (root is RenderEditable) return root;
+    RenderEditable? found;
+    root.visitChildren((child) {
+      found ??= _findRenderEditable(child);
+    });
+    return found;
+  }
 
   @override
   void initState() {
@@ -188,6 +202,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   Widget _buildReadingMode() {
     final hasSelection = _readController.selection.isValid &&
         !_readController.selection.isCollapsed;
+    final showToolbar = hasSelection || _selectionActive;
 
     return GestureDetector(
       onTap: () {
@@ -195,6 +210,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         setState(() => _selectionActive = false);
       },
       child: Container(
+        key: _readAreaKey,
         color: Theme.of(context).colorScheme.surface,
         child: Scrollbar(
           controller: _readScrollController,
@@ -206,6 +222,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               ),
             ),
             child: Stack(
+              clipBehavior: Clip.hardEdge,
               children: [
                 Positioned.fill(
                   child: TextField(
@@ -227,17 +244,17 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                         return const SizedBox.shrink();
                       }
                       _updateActiveFromSelection(sel.start, sel.end);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        setState(() => _selectionActive = true);
-                      });
+                      _recalcToolbarPosition();
                       return const SizedBox.shrink();
                     },
                   ),
                 ),
-                if (hasSelection || _selectionActive)
+                if (showToolbar)
                   Positioned(
-                    top: 12,
-                    right: 16,
+                    top: _toolbarBelow
+                        ? _toolbarOffset.dy + 8
+                        : _toolbarOffset.dy - 140,
+                    left: (_toolbarOffset.dx - 155).clamp(0, double.infinity),
                     child: Material(
                       elevation: 8,
                       borderRadius: BorderRadius.circular(12),
@@ -259,10 +276,54 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
     if (nowActive) {
       _updateActiveFromSelection(sel.start, sel.end);
+      _recalcToolbarPosition();
     }
 
     if (wasActive != nowActive) {
       setState(() => _selectionActive = nowActive);
+    }
+  }
+
+  void _recalcToolbarPosition() {
+    final sel = _readController.selection;
+    if (!sel.isValid || sel.isCollapsed) return;
+
+    final renderEditable = _cachedRenderEditable;
+    if (renderEditable == null || !renderEditable.attached) {
+      final areaBox =
+          _readAreaKey.currentContext?.findRenderObject() as RenderBox?;
+      if (areaBox != null) {
+        _cachedRenderEditable = _findRenderEditable(areaBox);
+      }
+    }
+    final re = _cachedRenderEditable;
+    if (re == null) return;
+
+    try {
+      final boxes = re.getBoxesForSelection(sel);
+      if (boxes.isEmpty) return;
+
+      final firstBox = boxes.first;
+      final lastBox = boxes.last;
+      final globalOrigin = re.localToGlobal(Offset.zero);
+      final areaBox =
+          _readAreaKey.currentContext?.findRenderObject() as RenderBox?;
+      if (areaBox == null) return;
+      final areaOrigin = areaBox.localToGlobal(Offset.zero);
+      final relativeOrigin = globalOrigin - areaOrigin;
+
+      final selTop = relativeOrigin.dy + firstBox.top;
+      final selBottom = relativeOrigin.dy + lastBox.bottom;
+      final selMidX = relativeOrigin.dx + (firstBox.left + lastBox.right) / 2;
+      final areaHeight = areaBox.size.height;
+
+      _toolbarBelow = selTop < areaHeight / 2;
+      _toolbarOffset = Offset(
+        selMidX,
+        _toolbarBelow ? selBottom : selTop,
+      );
+    } catch (_) {
+      // 计算失败时使用默认位置
     }
   }
 
