@@ -79,6 +79,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       volume.updatedAt = DateTime.now();
       await storage.saveVolume(bookId, volume);
     }
+    ref.invalidateSelf();
     return chapter;
   }
 
@@ -126,6 +127,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       volume.updatedAt = DateTime.now();
       await storage.saveVolume(bookId, volume);
     }
+    ref.invalidateSelf();
   }
 }
 

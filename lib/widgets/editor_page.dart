@@ -287,7 +287,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       canRequestFocus: false,
                       descendantsAreFocusable: false,
                       child: GestureDetector(
-                        onTap: () {},
+                        onTap: () => _readFocusNode.requestFocus(),
                         child: Material(
                           elevation: 8,
                           borderRadius: BorderRadius.circular(12),
@@ -441,6 +441,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             if (sel.isValid && !sel.isCollapsed) {
               _updateActiveColorFromSelection(sel.start, sel.end);
             }
+            _readFocusNode.requestFocus();
           },
           child: Container(
             width: 44,
@@ -584,6 +585,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
     setState(() => _activeColor = colorHex);
     _readController._rebuildText();
+    _readFocusNode.requestFocus();
   }
 
   void _clearActiveAnnotation() {
@@ -608,6 +610,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
     setState(() => _activeColor = null);
     _readController._rebuildText();
+    _readFocusNode.requestFocus();
   }
 
   // ==================== 保存 ====================
