@@ -277,6 +277,20 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                     ),
                   ),
                 ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: SingleChildScrollView(
+                        controller: _readScrollController,
+                        child: RichText(
+                          text: _readController.buildStrikethroughSpan(),
+                          textDirection: TextDirection.ltr,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 if (showToolbar)
                   Positioned(
                     top: _toolbarBelow
@@ -757,20 +771,34 @@ class _AnnotatedTextController extends TextEditingController {
             decorationColor: seg.underlineColor,
           );
         }
-        if (seg.hasStrikethrough) {
-          s = s.copyWith(
-            decoration: s.decoration != null
-                ? TextDecoration.combine([s.decoration!, TextDecoration.lineThrough])
-                : TextDecoration.lineThrough,
-            decorationColor: seg.strikethroughColor,
-          );
-        }
         if (seg.hasHighlight) {
           s = s.copyWith(backgroundColor: seg.highlightColor);
         }
         return TextSpan(text: seg.text, style: s);
       }).toList(),
       style: style,
+    );
+  }
+
+  // 删除线独立渲染为遮盖层，避免 decorationColor 与下划线冲突
+  TextSpan buildStrikethroughSpan() {
+    final text = this.text;
+    if (text.isEmpty) return const TextSpan(text: '');
+    final segments = _buildSegments(text);
+    return TextSpan(
+      children: segments.map((seg) {
+        return TextSpan(
+          text: seg.text,
+          style: seg.hasStrikethrough
+              ? TextStyle(
+                  color: Colors.transparent,
+                  fontSize: 16,
+                  decoration: TextDecoration.lineThrough,
+                  decorationColor: seg.strikethroughColor,
+                )
+              : const TextStyle(color: Colors.transparent, fontSize: 16),
+        );
+      }).toList(),
     );
   }
 

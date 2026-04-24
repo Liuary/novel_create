@@ -524,6 +524,9 @@ class _ChapterListLoader extends ConsumerWidget {
                                 Theme.of(context).colorScheme.error,
                           ),
                           onPressed: () async {
+                            if (ref.read(currentChapterIdProvider) == ch.id) {
+                              ref.read(currentChapterIdProvider.notifier).state = null;
+                            }
                             await ref
                                 .read(bookListProvider.notifier)
                                 .deleteChapter(bookId, volume.id, ch.id);
