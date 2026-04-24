@@ -170,8 +170,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.save),
-            tooltip: '保存',
-            onPressed: _saveCurrentChapter,
+            tooltip: _isReadingMode ? '标注自动保存' : '保存',
+            onPressed: _isReadingMode ? null : _saveCurrentChapter,
           ),
         ],
       ),
@@ -225,6 +225,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             expands: true,
             textAlignVertical: TextAlignVertical.top,
             style: const TextStyle(fontSize: 16, height: 1.6),
+            strutStyle: const StrutStyle(fontSize: 16, forceStrutHeight: true),
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding: EdgeInsets.all(24),
@@ -273,6 +274,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
                     style: const TextStyle(fontSize: 16, height: 1.6),
+                    strutStyle: const StrutStyle(fontSize: 16, forceStrutHeight: true),
                     decoration: const InputDecoration(
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(24),
@@ -591,6 +593,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = colorHex);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
+    _autoSaveAnnotations();
   }
 
   void _clearActiveAnnotation() {
@@ -616,6 +619,12 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = null);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
+    _autoSaveAnnotations();
+  }
+
+  void _autoSaveAnnotations() {
+    _currentChapter?.annotations = List.from(_readController.annotations);
+    _saveCurrentChapter();
   }
 
   // ==================== 保存 ====================
