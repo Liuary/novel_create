@@ -761,10 +761,23 @@ class _AnnotatedTextController extends TextEditingController {
     if (text.isEmpty) {
       return TextSpan(text: '', style: style);
     }
+    final baseStyle = (style ?? const TextStyle(fontSize: 16)).copyWith(height: 1.6);
     final segments = _buildSegments(text);
+
+    // 合并相邻的相同样式片段，减少文本运行数量
+    final merged = <_TextSegment>[];
+    for (final seg in segments) {
+      if (merged.isNotEmpty && merged.last.styleEquals(seg)) {
+        merged.last = merged.last.mergedWith(seg);
+      } else {
+        merged.add(seg);
+      }
+    }
+
     return TextSpan(
-      children: segments.map((seg) {
-        TextStyle s = style ?? const TextStyle();
+      style: baseStyle,
+      children: merged.map((seg) {
+        TextStyle s = baseStyle;
         if (seg.hasUnderline) {
           s = s.copyWith(
             decoration: TextDecoration.underline,
@@ -784,7 +797,6 @@ class _AnnotatedTextController extends TextEditingController {
         }
         return TextSpan(text: seg.text, style: s);
       }).toList(),
-      style: style,
     );
   }
 
@@ -866,4 +878,22 @@ class _TextSegment {
     required this.hasHighlight,
     this.highlightColor,
   });
+
+  bool styleEquals(_TextSegment other) =>
+      hasUnderline == other.hasUnderline &&
+      underlineColor == other.underlineColor &&
+      hasStrikethrough == other.hasStrikethrough &&
+      strikethroughColor == other.strikethroughColor &&
+      hasHighlight == other.hasHighlight &&
+      highlightColor == other.highlightColor;
+
+  _TextSegment mergedWith(_TextSegment other) => _TextSegment(
+        text: text + other.text,
+        hasUnderline: hasUnderline,
+        underlineColor: underlineColor,
+        hasStrikethrough: hasStrikethrough,
+        strikethroughColor: strikethroughColor,
+        hasHighlight: hasHighlight,
+        highlightColor: highlightColor,
+      );
 }
