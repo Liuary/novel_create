@@ -278,14 +278,19 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                   ),
                 ),
                 Positioned.fill(
-                  child: IgnorePointer(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: SingleChildScrollView(
-                        controller: _readScrollController,
-                        child: RichText(
-                          text: _readController.buildStrikethroughSpan(),
-                          textDirection: TextDirection.ltr,
+                  child: ClipRect(
+                    child: ListenableBuilder(
+                      listenable: _readScrollController,
+                      builder: (context, _) => IgnorePointer(
+                        child: Transform.translate(
+                          offset: Offset(0, -_readScrollController.offset),
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: RichText(
+                              text: _readController.buildStrikethroughSpan(),
+                              textDirection: TextDirection.ltr,
+                            ),
+                          ),
                         ),
                       ),
                     ),
