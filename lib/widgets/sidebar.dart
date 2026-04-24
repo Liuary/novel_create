@@ -19,13 +19,6 @@ class Sidebar extends ConsumerWidget {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).dividerColor,
-                ),
-              ),
-            ),
             child: Row(
               children: [
                 const Text(
@@ -591,12 +584,12 @@ class _TreeItem extends ConsumerWidget {
           top: 4,
           bottom: 4,
         ),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4)
-              : null,
-          borderRadius: BorderRadius.circular(6),
-        ),
+        decoration: depth == 2 && isSelected
+            ? BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.zero,
+              )
+            : null,
         child: Row(
           children: [
             Icon(icon, size: 16),

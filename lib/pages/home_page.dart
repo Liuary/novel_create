@@ -11,7 +11,6 @@ class HomePage extends StatelessWidget {
       body: Row(
         children: [
           const Sidebar(),
-          const VerticalDivider(width: 1),
           Expanded(child: EditorPage()),
         ],
       ),

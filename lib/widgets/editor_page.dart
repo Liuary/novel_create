@@ -25,10 +25,14 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   final _readScrollController = ScrollController();
   final _readFocusNode = FocusNode();
 
+  final _titleController = TextEditingController();
+
   String? _loadedChapterId;
   bool _isReadingMode = false;
   bool _isLoading = false;
   Chapter? _currentChapter;
+
+  bool _isEditingTitle = false;
 
   AnnotationType _activeType = AnnotationType.underline;
   String? _activeColor;
@@ -66,6 +70,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     _readController.dispose();
     _readScrollController.dispose();
     _readFocusNode.dispose();
+    _titleController.dispose();
     super.dispose();
   }
 
@@ -99,7 +104,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     return Column(
       children: [
         _buildTitleBar(),
-        const Divider(height: 1),
         Expanded(child: _isReadingMode ? _buildReadingMode() : _buildWritingMode()),
       ],
     );
@@ -112,9 +116,37 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       child: Row(
         children: [
           Expanded(
-            child: Text(title,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: _isEditingTitle
+                ? TextField(
+                    controller: _titleController,
+                    autofocus: true,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onSubmitted: (_) => _submitTitle(),
+                    onTapOutside: (_) => _submitTitle(),
+                  )
+                : GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _isEditingTitle = true;
+                        _titleController.text = _currentChapter?.title ?? '';
+                      });
+                    },
+                    child: Text(title,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
           ),
+          if (_isEditingTitle)
+            IconButton(
+              icon: const Icon(Icons.check, size: 20),
+              tooltip: '确认',
+              onPressed: _submitTitle,
+              visualDensity: VisualDensity.compact,
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Text(
@@ -122,29 +154,36 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('写作')),
-              ButtonSegment(value: true, label: Text('阅读')),
-            ],
-            selected: {_isReadingMode},
-            onSelectionChanged: (sel) {
-              _switchMode(sel.first);
-            },
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
-            ),
+          TextButton(
+            onPressed: () => _switchMode(false),
+            child: Text('写作',
+                style: TextStyle(
+                    fontWeight: _isReadingMode ? FontWeight.normal : FontWeight.bold,
+                    fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: () => _switchMode(true),
+            child: Text('阅读',
+                style: TextStyle(
+                    fontWeight: _isReadingMode ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 12)),
           ),
           const SizedBox(width: 8),
-          FilledButton.tonalIcon(
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: '保存',
             onPressed: _saveCurrentChapter,
-            icon: const Icon(Icons.save, size: 16),
-            label: const Text('保存', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
     );
+  }
+
+  void _submitTitle() {
+    if (_titleController.text.isNotEmpty && _currentChapter != null) {
+      _currentChapter!.title = _titleController.text;
+    }
+    setState(() => _isEditingTitle = false);
   }
 
   void _switchMode(bool toReading) {
@@ -238,15 +277,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.all(24),
                     ),
-                    contextMenuBuilder: (ctx, editableTextState) {
-                      final sel = _readController.selection;
-                      if (!sel.isValid || sel.isCollapsed) {
-                        return const SizedBox.shrink();
-                      }
-                      _updateActiveFromSelection(sel.start, sel.end);
-                      _recalcToolbarPosition();
-                      return const SizedBox.shrink();
-                    },
                   ),
                 ),
                 if (showToolbar)
@@ -255,10 +285,13 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                         ? _toolbarOffset.dy + 8
                         : _toolbarOffset.dy - 140,
                     left: (_toolbarOffset.dx - 155).clamp(0, double.infinity),
-                    child: Material(
-                      elevation: 8,
-                      borderRadius: BorderRadius.circular(12),
-                      child: _buildAnnotationToolbar(),
+                    child: GestureDetector(
+                      onTap: () {},
+                      child: Material(
+                        elevation: 8,
+                        borderRadius: BorderRadius.circular(12),
+                        child: _buildAnnotationToolbar(),
+                      ),
                     ),
                   ),
               ],
