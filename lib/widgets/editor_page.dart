@@ -36,6 +36,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   AnnotationType _activeType = AnnotationType.underline;
   String? _activeColor;
+  bool _typeLocked = false;
 
   bool _selectionActive = false;
   Offset _toolbarOffset = Offset.zero;
@@ -196,6 +197,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       _isReadingMode = toReading;
       _activeType = AnnotationType.underline;
       _activeColor = null;
+      _typeLocked = false;
       _selectionActive = false;
     });
     _updateWordCount();
@@ -331,6 +333,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     if (nowActive) {
       _updateActiveFromSelection(sel.start, sel.end);
       _recalcToolbarPosition();
+    } else {
+      setState(() => _typeLocked = false);
     }
 
     if (wasActive != nowActive) {
@@ -455,7 +459,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: () {
-            setState(() => _activeType = type);
+            setState(() {
+              _activeType = type;
+              _typeLocked = true;
+            });
             final sel = _readController.selection;
             if (sel.isValid && !sel.isCollapsed) {
               _updateActiveColorFromSelection(sel.start, sel.end);
@@ -507,17 +514,18 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       if (annotations.isEmpty) {
         _activeType = AnnotationType.underline;
         _activeColor = null;
+        _typeLocked = false;
         return;
       }
 
-      // 统计最多类型
-      final typeCount = <AnnotationType, int>{};
-      for (final a in annotations) {
-        typeCount[a.type] = (typeCount[a.type] ?? 0) + 1;
+      if (!_typeLocked) {
+        final typeCount = <AnnotationType, int>{};
+        for (final a in annotations) {
+          typeCount[a.type] = (typeCount[a.type] ?? 0) + 1;
+        }
+        _activeType = _pickMostFrequentType(typeCount);
       }
-      _activeType = _pickMostFrequentType(typeCount);
 
-      // 统计该类型下最多颜色
       final sameTypeAnnotations = annotations.where((a) => a.type == _activeType).toList();
       final colorCount = <String, int>{};
       for (final a in sameTypeAnnotations) {
@@ -577,10 +585,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final start = sel.start;
     final end = sel.end;
 
-    // 删除同类型的重叠标记
-    _readController.annotations.removeWhere((a) =>
-        a.type == _activeType && a.startOffset < end && a.endOffset > start);
-    // 截断相交的标记
+    // 截断相交的标记（expand 内部自动处理重叠部分的移除和两侧的保留）
     _readController.annotations = _readController.annotations.expand((a) {
       if (a.type != _activeType) return [a];
       if (a.endOffset <= start || a.startOffset >= end) return [a];
