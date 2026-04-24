@@ -154,19 +154,17 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
-          TextButton(
+          _ModeButton(
+            icon: Icons.edit,
+            label: '写作',
+            isActive: !_isReadingMode,
             onPressed: () => _switchMode(false),
-            child: Text('写作',
-                style: TextStyle(
-                    fontWeight: _isReadingMode ? FontWeight.normal : FontWeight.bold,
-                    fontSize: 12)),
           ),
-          TextButton(
+          _ModeButton(
+            icon: Icons.visibility,
+            label: '阅读',
+            isActive: _isReadingMode,
             onPressed: () => _switchMode(true),
-            child: Text('阅读',
-                style: TextStyle(
-                    fontWeight: _isReadingMode ? FontWeight.bold : FontWeight.normal,
-                    fontSize: 12)),
           ),
           const SizedBox(width: 8),
           IconButton(
@@ -285,12 +283,16 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                         ? _toolbarOffset.dy + 8
                         : _toolbarOffset.dy - 140,
                     left: (_toolbarOffset.dx - 155).clamp(0, double.infinity),
-                    child: GestureDetector(
-                      onTap: () {},
-                      child: Material(
-                        elevation: 8,
-                        borderRadius: BorderRadius.circular(12),
-                        child: _buildAnnotationToolbar(),
+                    child: Focus(
+                      canRequestFocus: false,
+                      descendantsAreFocusable: false,
+                      child: GestureDetector(
+                        onTap: () {},
+                        child: Material(
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(12),
+                          child: _buildAnnotationToolbar(),
+                        ),
                       ),
                     ),
                   ),
@@ -686,6 +688,42 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           const Text('请在左侧选择一个章节开始编辑',
               style: TextStyle(color: Colors.grey)),
         ],
+      ),
+    );
+  }
+}
+
+class _ModeButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onPressed;
+
+  const _ModeButton({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = isActive ? scheme.primary : scheme.onSurface.withValues(alpha: 0.4);
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16, color: color),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
