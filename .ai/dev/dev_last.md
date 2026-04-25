@@ -1,31 +1,19 @@
-# 最后操作状态 - 2026-04-25 17:08
+# 最后操作状态 - 2026-04-25 17:11
 
-## 当前分支
+## 代码审查结果
 
-`phase1-polish`
+`phase1-polish` 分支已通过审查并修复所有问题：
 
-## 本次改动概要
+### 已修复问题
+1. **标注脏状态追踪** — `toString()` 改为 `jsonEncode(annotations.map((a) => a.toJson()))`，修复标注修改无法被正确检测的 bug
+2. **Toast 定时器泄漏** — `ToastNotifier.build()` 添加 `ref.onDispose(() => _dismissTimer?.cancel())`
+3. **renameChapter UI 不刷新** — 添加 `ref.invalidateSelf()` 使重命名后侧边栏即时更新
 
-章节切换双弹窗修复、右下角倒计时消失修复、阅读模式布局修复、`ref.listen` unmount 保护、全局消息提示系统、侧边栏两级重构、文字改回存档版时倒计时清空、Riverpod 3.x API 适配、开发笔记归档。所有改动已提交。
+### 低优先清理项（不存在）
+- `build` 中定时器启动/回调注册 — 有布尔守卫，无重复注册风险
+- `build` 中内联 `Future.wait` — 功能正确，性能影响可忽略
+- `displayDuration` 不一致 — 不影响功能
 
-### 修改/新增文件
+## 分支状态
 
-- 新增: `lib/services/toast_service.dart`、`lib/widgets/toast_overlay.dart`、`lib/models/user_config.dart`
-- 重写: `lib/widgets/editor_page.dart`、`lib/widgets/sidebar.dart`
-- 修改: `lib/pages/home_page.dart`、`lib/providers/app_providers.dart`、`lib/services/storage_service.dart`
-
-### 归档笔记
-
-- `.ai/dev/note/double_dialog_guard.md`
-- `.ai/dev/note/global_toast_system.md`
-- `.ai/dev/note/ref_listen_unmount.md`
-- `.ai/dev/note/reading_mode_layout.md`
-- `.ai/dev/note/sidebar_restructure.md`
-
-## 已知问题
-
-无当前已知问题。
-
-## 当前代码状态
-
-所有改动已提交至 `phase1-polish` 分支。
+`phase1-polish` 可合并至 `master`。`flutter analyze` 零问题。
