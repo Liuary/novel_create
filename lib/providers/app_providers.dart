@@ -1,16 +1,46 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:uuid/uuid.dart';
 import '../models/book.dart';
 import '../models/volume.dart';
 import '../models/chapter.dart';
+import '../models/user_config.dart';
 import '../services/storage_service.dart';
+import '../services/toast_service.dart';
 
 const _uuid = Uuid();
 
 final storageServiceProvider = Provider<StorageService>((ref) {
   return StorageService.instance;
 });
+
+/// 用户配置 - AsyncNotifier
+final userConfigProvider =
+    AsyncNotifierProvider<UserConfigNotifier, UserConfig>(
+  UserConfigNotifier.new,
+);
+
+class UserConfigNotifier extends AsyncNotifier<UserConfig> {
+  @override
+  Future<UserConfig> build() async {
+    final storage = ref.read(storageServiceProvider);
+    return await storage.loadConfig() ?? UserConfig.defaults();
+  }
+
+  Future<void> updateConfig(UserConfig config) async {
+    final storage = ref.read(storageServiceProvider);
+    await storage.saveConfig(config);
+    state = AsyncData(config);
+  }
+}
+
+/// 是否有未保存的编辑内容（供应用退出时使用）
+final hasUnsavedChangesProvider = StateProvider<bool>((ref) => false);
+
+/// 退出时保存回调（由 EditorPage 注册）
+final onExitSaveProvider = StateProvider<Future<void> Function()?>(
+  (ref) => null,
+);
 
 /// 书籍列表 - AsyncNotifier
 final bookListProvider = AsyncNotifierProvider<BookListNotifier, List<Book>>(
@@ -103,6 +133,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       chapter.updatedAt = DateTime.now();
       await storage.saveChapter(bookId, volumeId, chapter);
     }
+    ref.invalidateSelf();
   }
 
   Future<void> deleteVolume(String bookId, String volumeId) async {
@@ -139,6 +170,11 @@ final currentVolumeIdProvider = StateProvider<String?>((ref) => null);
 
 /// 当前选中的章节ID
 final currentChapterIdProvider = StateProvider<String?>((ref) => null);
+
+/// 全局消息提示
+final toastProvider = NotifierProvider<ToastNotifier, List<ToastMessage>>(
+  ToastNotifier.new,
+);
 
 /// 当前书籍详情（派生自 bookListProvider）
 final currentBookProvider = Provider<Book?>((ref) {

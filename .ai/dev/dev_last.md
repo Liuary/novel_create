@@ -1,20 +1,19 @@
-# 最后操作状态 - 2026-04-25 04:07
+# 最后操作状态 - 2026-04-25 17:11
 
-## 阶段1 — 已完工
+## 代码审查结果
 
-所有需求均已实现。完整功能清单见 `.ai/plan/phase1/index.md`。
+`phase1-polish` 分支已通过审查并修复所有问题：
 
-## 核心解决方案
+### 已修复问题
+1. **标注脏状态追踪** — `toString()` 改为 `jsonEncode(annotations.map((a) => a.toJson()))`，修复标注修改无法被正确检测的 bug
+2. **Toast 定时器泄漏** — `ToastNotifier.build()` 添加 `ref.onDispose(() => _dismissTimer?.cancel())`
+3. **renameChapter UI 不刷新** — 添加 `ref.invalidateSelf()` 使重命名后侧边栏即时更新
 
-### 删除线/涂色高度对齐（GLM 方案）
+### 低优先清理项（不存在）
+- `build` 中定时器启动/回调注册 — 有布尔守卫，无重复注册风险
+- `build` 中内联 `Future.wait` — 功能正确，性能影响可忽略
+- `displayDuration` 不一致 — 不影响功能
 
-放弃 `TextSpan` 内嵌 `TextDecoration.lineThrough` 和 `backgroundColor`，改用 `CustomPaint` 覆盖层手动绘制：
-- `buildTextSpan` 仅保留下划线
-- `_DecorationPainter` 通过 `RenderEditable.getBoxesForSelection()` 获取文本坐标
-- Y 轴按 `preferredLineHeight` 归一化对齐到行边界
-- 涂色用 `painter`（文字背后），删除线用 `foregroundPainter`（文字前方）
-- 删除线 `strokeWidth` 从 2.0 降为 1.0，匹配下划线厚度
+## 分支状态
 
-## Git 历史
-
-12 次提交覆盖全部阶段1功能与修复。
+`phase1-polish` 可合并至 `master`。`flutter analyze` 零问题。

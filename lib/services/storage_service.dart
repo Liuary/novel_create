@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../models/book.dart';
 import '../models/volume.dart';
 import '../models/chapter.dart';
+import '../models/user_config.dart';
 
 class StorageService {
   static StorageService? _instance;
@@ -144,5 +145,21 @@ class StorageService {
     if (await file.exists()) {
       await file.delete();
     }
+  }
+
+  // ==================== 用户配置 ====================
+
+  String get _configPath => p.join(_dataDir, '_config.json');
+
+  Future<void> saveConfig(UserConfig config) async {
+    final file = File(_configPath);
+    await file.writeAsString(config.toJsonString(), flush: true);
+  }
+
+  Future<UserConfig?> loadConfig() async {
+    final file = File(_configPath);
+    if (!await file.exists()) return null;
+    final content = await file.readAsString();
+    return UserConfig.fromJson(jsonDecode(content) as Map<String, dynamic>);
   }
 }

@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/chapter.dart';
@@ -8,6 +11,8 @@ import '../providers/app_providers.dart';
 import '../services/storage_service.dart';
 
 const _uuid = Uuid();
+
+class _SaveIntent extends Intent {}
 
 class EditorPage extends ConsumerStatefulWidget {
   const EditorPage({super.key});
@@ -28,6 +33,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   final _titleController = TextEditingController();
 
   String? _loadedChapterId;
+  String? _loadedVolumeId;
+  String? _loadedBookId;
   bool _isReadingMode = false;
   bool _isLoading = false;
   Chapter? _currentChapter;
@@ -46,6 +53,16 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   final _readAreaKey = GlobalKey();
   RenderEditable? _cachedRenderEditable;
 
+  Timer? _countdownTimer;
+  String _savedContent = '';
+  String _savedAnnotationsJson = '';
+  bool _hasUnsavedChanges = false;
+  String _autoSaveStatus = '';
+  int _autoSaveCountdown = -1;
+  bool _isChangingChapter = false;
+  bool _onChapterChangingGuard = false;
+  bool _saveCallbackRegistered = false;
+
   RenderEditable? _findRenderEditable(RenderObject root) {
     if (root is RenderEditable) return root;
     RenderEditable? found;
@@ -59,12 +76,25 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   void initState() {
     super.initState();
     _writeController.addListener(_updateWordCount);
+    _writeController.addListener(_markWriteDirty);
     _readController.addListener(_onReadSelectionChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadCurrentChapter();
+    });
+  }
+
+  @override
+  void deactivate() {
+    ref.read(onExitSaveProvider.notifier).state = null;
+    super.deactivate();
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _writeController.removeListener(_updateWordCount);
+    _writeController.removeListener(_markWriteDirty);
     _writeController.dispose();
     _writeScrollController.dispose();
     _writeFocusNode.dispose();
@@ -78,15 +108,277 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   void _updateWordCount() {
     final text = _isReadingMode ? _readController.text : _writeController.text;
     final chars = text.replaceAll(RegExp(r'\s'), '').length;
-    setState(() => _wordCount = chars);
+    if (chars != _wordCount) {
+      setState(() => _wordCount = chars);
+    }
   }
 
-  // ==================== 加载章节 ====================
+  void _markWriteDirty() {
+    _checkDirty();
+    if (_hasUnsavedChanges) {
+      _resetAutoSaveCountdown();
+    }
+  }
+
+  void _markAnnotationsDirty() {
+    _checkDirty();
+    if (_hasUnsavedChanges) {
+      _resetAutoSaveCountdown();
+    }
+  }
+
+  void _clearDirty() {
+    _hasUnsavedChanges = false;
+    _savedContent = _writeController.text;
+    _savedAnnotationsJson = jsonEncode(_readController.annotations.map((a) => a.toJson()).toList());
+    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  }
+
+  void _checkDirty() {
+    final textDirty = _isReadingMode
+        ? false
+        : _writeController.text != _savedContent;
+    final annotationDirty = _isReadingMode
+        ? _readController.annotations.toString() != _savedAnnotationsJson
+        : false;
+    final isDirty = textDirty || annotationDirty;
+    if (isDirty != _hasUnsavedChanges) {
+      setState(() => _hasUnsavedChanges = isDirty);
+      ref.read(hasUnsavedChangesProvider.notifier).state = isDirty;
+      if (!isDirty) {
+        _autoSaveCountdown = -1;
+        setState(() => _autoSaveStatus = '');
+        _countdownTimer?.cancel();
+        _startAutoSaveTimer();
+      }
+    }
+  }
+
+  void _startAutoSaveTimer() {
+    _countdownTimer?.cancel();
+    _autoSaveCountdown = -1;
+    setState(() => _autoSaveStatus = '');
+    final configAsync = ref.read(userConfigProvider);
+    configAsync.whenData((config) {
+      final interval = config.autoSaveIntervalSeconds;
+      _autoSaveCountdown = interval;
+      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        if (_hasUnsavedChanges) {
+          _autoSaveCountdown--;
+          if (_autoSaveCountdown <= 0) {
+            _autoSaveCountdown = 0;
+            _autoSave();
+          } else {
+            setState(() => _autoSaveStatus = '自动保存 ${_autoSaveCountdown}s');
+          }
+        } else {
+          if (_autoSaveCountdown != interval) {
+            _autoSaveCountdown = interval;
+            setState(() => _autoSaveStatus = '');
+          }
+        }
+      });
+    });
+  }
+
+  void _resetAutoSaveCountdown() {
+    final interval = ref.read(userConfigProvider).whenOrNull(
+          data: (c) => c.autoSaveIntervalSeconds,
+        ) ?? 10;
+    _autoSaveCountdown = interval;
+    setState(() {});
+  }
+
+  Future<void> _autoSave() async {
+    if (!_hasUnsavedChanges) return;
+    await _saveCurrentChapter(silent: true);
+    _autoSaveCountdown = ref.read(userConfigProvider).whenOrNull(
+          data: (c) => c.autoSaveIntervalSeconds,
+        ) ?? 10;
+    if (mounted) {
+      setState(() => _autoSaveStatus = '');
+      ref.read(toastProvider.notifier).show('自动保存成功');
+    }
+  }
+
+  Future<void> _loadCurrentChapter() async {
+    if (!mounted) return;
+    final bookId = ref.read(currentBookIdProvider);
+    final volumeId = ref.read(currentVolumeIdProvider);
+    final chapterId = ref.read(currentChapterIdProvider);
+    if (bookId == null || volumeId == null || chapterId == null) return;
+    await _loadChapter(bookId, volumeId, chapterId);
+  }
+
+  // ==================== 章节切换（未保存检测） ====================
+
+  void _onChapterChanging(String newChapterId) {
+    if (_isChangingChapter || _onChapterChangingGuard) return;
+    _onChapterChangingGuard = true;
+    if (_hasUnsavedChanges && _loadedChapterId != null) {
+      ref.read(currentChapterIdProvider.notifier).state = _loadedChapterId;
+      _showUnsavedDialog(
+        onSave: () async {
+          await _saveCurrentChapter(silent: true);
+          if (!mounted) return;
+          _isChangingChapter = false;
+          _onChapterChangingGuard = false;
+          ref.read(currentChapterIdProvider.notifier).state = newChapterId;
+          _loadCurrentChapter();
+        },
+        onDiscard: () {
+          if (!mounted) return;
+          _clearDirty();
+          _isChangingChapter = false;
+          _onChapterChangingGuard = false;
+          ref.read(currentChapterIdProvider.notifier).state = newChapterId;
+          _loadCurrentChapter();
+        },
+        onCancel: () {
+          _isChangingChapter = false;
+          _onChapterChangingGuard = false;
+          _restoreProviderState();
+        },
+      );
+    } else {
+      if (!mounted) return;
+      _isChangingChapter = false;
+      _onChapterChangingGuard = false;
+      _loadCurrentChapter();
+    }
+  }
+
+  void _restoreProviderState() {
+    _isChangingChapter = true;
+    _onChapterChangingGuard = true;
+    ref.read(currentBookIdProvider.notifier).state = _loadedBookId;
+    ref.read(currentVolumeIdProvider.notifier).state = _loadedVolumeId;
+    ref.read(currentChapterIdProvider.notifier).state = _loadedChapterId;
+    Future.microtask(() {
+      _isChangingChapter = false;
+      _onChapterChangingGuard = false;
+    });
+  }
+
+  void _onLeavingChapter() {
+    if (_isChangingChapter || _onChapterChangingGuard) return;
+    _onChapterChangingGuard = true;
+    _showUnsavedDialog(
+      onSave: () async {
+        await _saveCurrentChapter(silent: true);
+        _isChangingChapter = false;
+        _onChapterChangingGuard = false;
+        ref.read(currentChapterIdProvider.notifier).state = null;
+        ref.read(currentVolumeIdProvider.notifier).state = null;
+        ref.read(currentBookIdProvider.notifier).state = null;
+        _clearChapterState();
+      },
+      onDiscard: () {
+        _clearDirty();
+        _isChangingChapter = false;
+        _onChapterChangingGuard = false;
+        ref.read(currentChapterIdProvider.notifier).state = null;
+        ref.read(currentVolumeIdProvider.notifier).state = null;
+        ref.read(currentBookIdProvider.notifier).state = null;
+        _clearChapterState();
+      },
+      onCancel: () {
+        _isChangingChapter = false;
+        _onChapterChangingGuard = false;
+        _restoreProviderState();
+      },
+    );
+  }
+
+  Future<void> _showUnsavedDialog({
+    required Future<void> Function() onSave,
+    required VoidCallback onDiscard,
+    required VoidCallback onCancel,
+  }) async {
+    _isChangingChapter = true;
+    final action = await showDialog<_SaveDialogAction>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('未保存的更改'),
+        content: const Text('当前章节有未保存的编辑内容。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.cancel),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.discard),
+            child: const Text('放弃'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.save),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    switch (action) {
+      case _SaveDialogAction.save:
+        await onSave();
+      case _SaveDialogAction.discard:
+        onDiscard();
+      case _SaveDialogAction.cancel:
+      case null:
+        onCancel();
+    }
+  }
+
+  void _clearChapterState() {
+    _writeController.text = '';
+    _readController.text = '';
+    _readController.annotations = [];
+    _currentChapter = null;
+    _loadedChapterId = null;
+    _loadedVolumeId = null;
+    _loadedBookId = null;
+    _clearDirty();
+    _autoSaveStatus = '';
+    _autoSaveCountdown = -1;
+  }
+
+  // ==================== 构建 ====================
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(currentChapterIdProvider, (prev, next) {
+      if (!mounted) return;
+      if (prev != next && next != null && !_isChangingChapter) {
+        _onChapterChanging(next);
+      } else if (prev != null && next == null && _hasUnsavedChanges && !_isChangingChapter) {
+        _onLeavingChapter();
+      }
+    });
+    ref.listen(currentVolumeIdProvider, (prev, next) {
+      if (!mounted) return;
+      if (prev != null && next == null && _hasUnsavedChanges && _loadedChapterId != null && !_isChangingChapter) {
+        _onLeavingChapter();
+      }
+    });
+    ref.listen(currentBookIdProvider, (prev, next) {
+      if (!mounted) return;
+      if (prev != null && next == null && _hasUnsavedChanges && _loadedChapterId != null && !_isChangingChapter) {
+        _onLeavingChapter();
+      }
+    });
+    if (!_saveCallbackRegistered) {
+      _saveCallbackRegistered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(onExitSaveProvider.notifier).state = _saveCurrentChapter;
+        }
+      });
+    }
+    if (_countdownTimer == null && _currentChapter != null) {
+      _startAutoSaveTimer();
+    }
+
     final bookId = ref.watch(currentBookIdProvider);
-    final volumeId = ref.watch(currentVolumeIdProvider);
     final chapterId = ref.watch(currentChapterIdProvider);
 
     if (bookId == null) {
@@ -95,20 +387,30 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     if (chapterId == null) {
       return _buildBookInfo(bookId, ref);
     }
-    if (_loadedChapterId != chapterId) {
-      _loadChapter(bookId, volumeId!, chapterId);
-    }
     if (_isLoading || _currentChapter == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Column(
-      children: [
-        _buildTitleBar(),
-        Expanded(
-          child: _isReadingMode ? _buildReadingMode() : _buildWritingMode(),
+    return Shortcuts(
+      shortcuts: {
+        SingleActivator(LogicalKeyboardKey.keyS, control: true):
+            _SaveIntent(),
+      },
+      child: Actions(
+        actions: {
+          _SaveIntent: CallbackAction<_SaveIntent>(
+            onInvoke: (_) => _saveCurrentChapter(),
+          ),
+        },
+        child: Column(
+          children: [
+            _buildTitleBar(),
+            Expanded(
+              child: _isReadingMode ? _buildReadingMode() : _buildWritingMode(),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -180,8 +482,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.save),
-            tooltip: _isReadingMode ? '标注自动保存' : '保存',
-            onPressed: _isReadingMode ? null : _saveCurrentChapter,
+            tooltip: '保存 (Ctrl+S)',
+            onPressed: _hasUnsavedChanges ? _saveCurrentChapter : null,
           ),
         ],
       ),
@@ -213,6 +515,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       _selectionActive = false;
     });
     _updateWordCount();
+    _checkDirty();
   }
 
   // ==================== 写作模式 ====================
@@ -220,35 +523,40 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   Widget _buildWritingMode() {
     return Container(
       color: Theme.of(context).colorScheme.surface,
-      child: Scrollbar(
-        controller: _writeScrollController,
-        thumbVisibility: true,
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            scrollbarTheme: ScrollbarThemeData(
-              thickness: WidgetStateProperty.all(0.0),
+      child: Stack(
+        children: [
+          Scrollbar(
+            controller: _writeScrollController,
+            thumbVisibility: true,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                scrollbarTheme: ScrollbarThemeData(
+                  thickness: WidgetStateProperty.all(0.0),
+                ),
+              ),
+              child: TextField(
+                controller: _writeController,
+                focusNode: _writeFocusNode,
+                scrollController: _writeScrollController,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                style: const TextStyle(fontSize: 16),
+                strutStyle: const StrutStyle(
+                  fontSize: 16,
+                  height: 1.6,
+                  forceStrutHeight: true,
+                ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.all(24),
+                  hintText: '开始创作...',
+                ),
+              ),
             ),
           ),
-          child: TextField(
-            controller: _writeController,
-            focusNode: _writeFocusNode,
-            scrollController: _writeScrollController,
-            maxLines: null,
-            expands: true,
-            textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(fontSize: 16),
-            strutStyle: const StrutStyle(
-              fontSize: 16,
-              height: 1.6,
-              forceStrutHeight: true,
-            ),
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.all(24),
-              hintText: '开始创作...',
-            ),
-          ),
-        ),
+          _buildAutoSaveNotification(),
+        ],
       ),
     );
   }
@@ -269,57 +577,52 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       child: Container(
         key: _readAreaKey,
         color: Theme.of(context).colorScheme.surface,
-        child: Scrollbar(
-          controller: _readScrollController,
-          thumbVisibility: true,
-          child: Theme(
-            data: Theme.of(context).copyWith(
-              scrollbarTheme: ScrollbarThemeData(
-                thickness: WidgetStateProperty.all(0.0),
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            CustomPaint(
+              painter: _DecorationPainter(
+                annotations: _readController.annotations,
+                areaKey: _readAreaKey,
+                scrollController: _readScrollController,
+                textController: _readController,
+                drawHighlights: true,
+                drawStrikethroughs: false,
               ),
-            ),
-            child: Stack(
-              clipBehavior: Clip.hardEdge,
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _DecorationPainter(
-                      annotations: _readController.annotations,
-                      areaKey: _readAreaKey,
-                      scrollController: _readScrollController,
-                      textController: _readController,
-                      drawHighlights: true,
-                      drawStrikethroughs: false,
+              foregroundPainter: _DecorationPainter(
+                annotations: _readController.annotations,
+                areaKey: _readAreaKey,
+                scrollController: _readScrollController,
+                textController: _readController,
+                drawHighlights: false,
+                drawStrikethroughs: true,
+              ),
+              child: Scrollbar(
+                controller: _readScrollController,
+                thumbVisibility: true,
+                child: Theme(
+                  data: Theme.of(context).copyWith(
+                    scrollbarTheme: ScrollbarThemeData(
+                      thickness: WidgetStateProperty.all(0.0),
                     ),
-                    foregroundPainter: _DecorationPainter(
-                      annotations: _readController.annotations,
-                      areaKey: _readAreaKey,
-                      scrollController: _readScrollController,
-                      textController: _readController,
-                      drawHighlights: false,
-                      drawStrikethroughs: true,
-                    ),
-                    child: TextField(
-                      focusNode: _readFocusNode,
-                      controller: _readController,
-                      scrollController: _readScrollController,
-                      readOnly: true,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: const TextStyle(fontSize: 16),
-                      strutStyle: const StrutStyle(
-                        fontSize: 16,
-                        height: 1.6,
-                        forceStrutHeight: true,
-                      ),
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.all(24),
-                      ),
+                  ),
+                  child: TextField(
+                    focusNode: _readFocusNode,
+                    controller: _readController,
+                    scrollController: _readScrollController,
+                    readOnly: true,
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: const TextStyle(fontSize: 16),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.all(24),
                     ),
                   ),
                 ),
+              ),
+            ),
                 if (showToolbar)
                   Positioned(
                     top: _toolbarBelow
@@ -339,9 +642,40 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       ),
                     ),
                   ),
+                _buildAutoSaveNotification(),
               ],
             ),
           ),
+        );
+  }
+
+  Widget _buildAutoSaveNotification() {
+    if (_autoSaveStatus.isEmpty) return const SizedBox.shrink();
+    return Positioned(
+      left: 24,
+      bottom: 24,
+      child: Text(
+        _autoSaveStatus,
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).brightness == Brightness.dark
+              ? Colors.white
+              : Colors.black87,
+          shadows: [
+            Shadow(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.black.withValues(alpha: 0.7)
+                  : Colors.white.withValues(alpha: 0.8),
+              blurRadius: 2,
+            ),
+            Shadow(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.black.withValues(alpha: 0.5)
+                  : Colors.white.withValues(alpha: 0.6),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
       ),
     );
@@ -400,12 +734,24 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       _toolbarBelow = selTop < areaHeight / 2;
       _toolbarOffset = Offset(selMidX, _toolbarBelow ? selBottom : selTop);
     } catch (_) {
-      // 计算失败时使用默认位置
     }
   }
 
   Widget _buildAnnotationToolbar() {
-    final colors = annotationColorsHex;
+    final configAsync = ref.watch(userConfigProvider);
+    final colors = configAsync.whenOrNull(
+          data: (config) => config.annotationColorsHex,
+        ) ??
+        const [
+          'FF5252',
+          'FF9800',
+          'FFEB3B',
+          '4CAF50',
+          '2196F3',
+          '3F51B5',
+          '9C27B0',
+        ];
+
     return Container(
       width: 310,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -416,7 +762,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 上层：下划线、删除线、涂色
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -440,7 +785,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           const SizedBox(height: 6),
           const Divider(height: 1),
           const SizedBox(height: 6),
-          // 下层：清除 + 7颜色
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -616,16 +960,26 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   }
 
   String _pickMostFrequentColor(Map<String, int> counts) {
-    final candidates = annotationColorsHex
-        .where((c) => counts.containsKey(c))
-        .toList();
-    if (candidates.isEmpty) return annotationColorsHex.first;
+    final configAsync = ref.read(userConfigProvider);
+    final colors = configAsync.whenOrNull(
+          data: (config) => config.annotationColorsHex,
+        ) ??
+        const [
+          'FF5252',
+          'FF9800',
+          'FFEB3B',
+          '4CAF50',
+          '2196F3',
+          '3F51B5',
+          '9C27B0',
+        ];
+
+    final candidates = colors.where((c) => counts.containsKey(c)).toList();
+    if (candidates.isEmpty) return colors.first;
     candidates.sort((a, b) {
       final diff = (counts[b] ?? 0).compareTo(counts[a] ?? 0);
       if (diff != 0) return diff;
-      return annotationColorsHex
-          .indexOf(a)
-          .compareTo(annotationColorsHex.indexOf(b));
+      return colors.indexOf(a).compareTo(colors.indexOf(b));
     });
     return candidates.first;
   }
@@ -637,7 +991,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final start = sel.start;
     final end = sel.end;
 
-    // 截断相交的标记（expand 内部自动处理重叠部分的移除和两侧的保留）
     _readController.annotations = _readController.annotations.expand((a) {
       if (a.type != _activeType) return [a];
       if (a.endOffset <= start || a.startOffset >= end) return [a];
@@ -650,7 +1003,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       }
       return split;
     }).toList();
-    // 添加新标记
+
     _readController.annotations.add(
       Annotation(
         id: _uuid.v4(),
@@ -664,6 +1017,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = colorHex);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
+    _markAnnotationsDirty();
     _autoSaveAnnotations();
   }
 
@@ -690,6 +1044,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = null);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
+    _markAnnotationsDirty();
     _autoSaveAnnotations();
   }
 
@@ -717,10 +1072,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final storage = StorageService.instance;
     await storage.saveChapter(bookId, volumeId, _currentChapter!);
 
+    _clearDirty();
+
     if (!silent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('保存成功'), duration: Duration(seconds: 1)),
-      );
+      ref.read(toastProvider.notifier).show('保存成功');
     }
   }
 
@@ -734,14 +1089,25 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _isLoading = true);
     final storage = StorageService.instance;
     final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
+    _loadedChapterId = chapterId;
+    _loadedVolumeId = volumeId;
+    _loadedBookId = bookId;
+
+    _savedContent = chapter?.content ?? '';
+    _savedAnnotationsJson = (chapter?.annotations ?? []).toString();
+
     if (chapter != null) {
       _writeController.text = chapter.content;
       _readController.text = chapter.content;
       _readController.annotations = List.from(chapter.annotations);
       _currentChapter = chapter;
     }
-    _loadedChapterId = chapterId;
     _isReadingMode = false;
+    _hasUnsavedChanges = false;
+    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+    _autoSaveStatus = '';
+    _autoSaveCountdown = -1;
+    _startAutoSaveTimer();
     setState(() => _isLoading = false);
   }
 
@@ -790,6 +1156,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     );
   }
 }
+
+enum _SaveDialogAction { save, discard, cancel }
 
 class _ModeButton extends StatelessWidget {
   final IconData icon;
@@ -849,7 +1217,6 @@ class _AnnotatedTextController extends TextEditingController {
     );
     final segments = _buildSegments(text);
 
-    // 合并相邻的相同样式片段，减少文本运行数量
     final merged = <_TextSegment>[];
     for (final seg in segments) {
       if (merged.isNotEmpty && merged.last.styleEquals(seg)) {
@@ -875,7 +1242,6 @@ class _AnnotatedTextController extends TextEditingController {
   }
 
   List<_TextSegment> _buildSegments(String text) {
-    // 收集所有断点
     final breakpoints = <int>{0, text.length};
     for (final a in annotations) {
       if (a.startOffset >= 0 && a.startOffset <= text.length) {
@@ -933,7 +1299,6 @@ class _AnnotatedTextController extends TextEditingController {
   }
 
   void _rebuildText() {
-    // 重建文本：保持当前文字不变，但重绘标注
     final oldText = text;
     value = TextEditingValue(text: oldText, selection: selection);
   }
@@ -967,14 +1332,14 @@ class _TextSegment {
       highlightColor == other.highlightColor;
 
   _TextSegment mergedWith(_TextSegment other) => _TextSegment(
-    text: text + other.text,
-    hasUnderline: hasUnderline,
-    underlineColor: underlineColor,
-    hasStrikethrough: hasStrikethrough,
-    strikethroughColor: strikethroughColor,
-    hasHighlight: hasHighlight,
-    highlightColor: highlightColor,
-  );
+        text: text + other.text,
+        hasUnderline: hasUnderline,
+        underlineColor: underlineColor,
+        hasStrikethrough: hasStrikethrough,
+        strikethroughColor: strikethroughColor,
+        hasHighlight: hasHighlight,
+        highlightColor: highlightColor,
+      );
 }
 
 class _DecorationPainter extends CustomPainter {

@@ -1,9 +1,35 @@
 {
-  "worktrees": {},
-  "sessions": {},
+  "worktrees": {
+    "wt-1777062067829-1": {
+      "branch": "empty-wormhole",
+      "path": "c:\\Code\\Flutter\\novel_create\\.kilo\\worktrees\\empty-wormhole",
+      "parentBranch": "phase1-polish",
+      "createdAt": "2026-04-24T20:21:07.829Z"
+    },
+    "wt-1777108024575-1": {
+      "branch": "brave-stamp",
+      "path": "c:\\Code\\Flutter\\novel_create\\.kilo\\worktrees\\brave-stamp",
+      "parentBranch": "phase1-polish",
+      "createdAt": "2026-04-25T09:07:04.575Z"
+    }
+  },
+  "sessions": {
+    "ses_23ee6450effe1IkvZsFz9k9MNA": {
+      "worktreeId": "wt-1777062067829-1",
+      "createdAt": "2026-04-24T20:21:07.833Z"
+    },
+    "ses_23c1b80faffe5n7r9VdefV002c": {
+      "worktreeId": "wt-1777108024575-1",
+      "createdAt": "2026-04-25T09:07:06.677Z"
+    }
+  },
   "tabOrder": {
     "local": [
       "pending:1"
     ]
-  }
+  },
+  "worktreeOrder": [
+    "wt-1777062067829-1",
+    "wt-1777108024575-1"
+  ]
 }
