@@ -1,19 +1,30 @@
-# 最后操作状态 - 2026-04-25 17:11
+# 最后操作状态 - 2026-04-25 17:20
 
-## 代码审查结果
+## 分支
 
-`phase1-polish` 分支已通过审查并修复所有问题：
+当前在 `master`。`phase1-polish` 已合并至主干。
 
-### 已修复问题
-1. **标注脏状态追踪** — `toString()` 改为 `jsonEncode(annotations.map((a) => a.toJson()))`，修复标注修改无法被正确检测的 bug
-2. **Toast 定时器泄漏** — `ToastNotifier.build()` 添加 `ref.onDispose(() => _dismissTimer?.cancel())`
-3. **renameChapter UI 不刷新** — 添加 `ref.invalidateSelf()` 使重命名后侧边栏即时更新
+## 阶段1 完成状态
 
-### 低优先清理项（不存在）
-- `build` 中定时器启动/回调注册 — 有布尔守卫，无重复注册风险
-- `build` 中内联 `Future.wait` — 功能正确，性能影响可忽略
-- `displayDuration` 不一致 — 不影响功能
+全部功能实现，经审查无阻断问题。完整清单见 `.ai/plan/phase1/index.md`。
 
-## 分支状态
+## 巨集功能
 
-`phase1-polish` 可合并至 `master`。`flutter analyze` 零问题。
+| 模块 | 说明 |
+|------|------|
+| 书籍/卷/章节管理 | CRUD + 重命名 + 内联编辑 |
+| 写作模式 | 纯文本编辑器，字数统计，自动保存 |
+| 阅读模式 | 标注系统（下划线/删除线/涂色），浮动工具栏 |
+| CustomPaint 标注 | 删除线和涂色通过 `_DecorationPainter` 手动对齐绘制 |
+| 自动保存 | 定时器倒计时，脏状态追踪 |
+| 全局消息 | `ToastNotifier` + `ToastOverlay` |
+| 未保存检测 | 章节切换时双弹窗确认 |
+| 侧边栏 | 两级重构，选中章节底板，父级加粗 |
+
+## 已知限制
+
+- Flutter `decorationColor` 单一颜色限制，下划线和删除线共享颜色
+
+## Git
+
+`master` 分支，`flutter analyze` 零问题。
