@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -129,7 +130,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   void _clearDirty() {
     _hasUnsavedChanges = false;
     _savedContent = _writeController.text;
-    _savedAnnotationsJson = _readController.annotations.toString();
+    _savedAnnotationsJson = jsonEncode(_readController.annotations.map((a) => a.toJson()).toList());
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }
 

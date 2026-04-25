@@ -19,7 +19,10 @@ class ToastNotifier extends Notifier<List<ToastMessage>> {
   static const Duration displayDuration = Duration(seconds: 3);
 
   @override
-  List<ToastMessage> build() => [];
+  List<ToastMessage> build() {
+    ref.onDispose(() => _dismissTimer?.cancel());
+    return [];
+  }
 
   void show(String text) {
     _queue.add(ToastMessage(text: text));

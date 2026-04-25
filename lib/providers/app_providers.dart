@@ -133,6 +133,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       chapter.updatedAt = DateTime.now();
       await storage.saveChapter(bookId, volumeId, chapter);
     }
+    ref.invalidateSelf();
   }
 
   Future<void> deleteVolume(String bookId, String volumeId) async {
