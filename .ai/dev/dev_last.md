@@ -1,20 +1,31 @@
-# 最后操作状态 - 2026-04-25 04:07
+# 最后操作状态 - 2026-04-25 17:08
 
-## 阶段1 — 已完工
+## 当前分支
 
-所有需求均已实现。完整功能清单见 `.ai/plan/phase1/index.md`。
+`phase1-polish`
 
-## 核心解决方案
+## 本次改动概要
 
-### 删除线/涂色高度对齐（GLM 方案）
+章节切换双弹窗修复、右下角倒计时消失修复、阅读模式布局修复、`ref.listen` unmount 保护、全局消息提示系统、侧边栏两级重构、文字改回存档版时倒计时清空、Riverpod 3.x API 适配、开发笔记归档。所有改动已提交。
 
-放弃 `TextSpan` 内嵌 `TextDecoration.lineThrough` 和 `backgroundColor`，改用 `CustomPaint` 覆盖层手动绘制：
-- `buildTextSpan` 仅保留下划线
-- `_DecorationPainter` 通过 `RenderEditable.getBoxesForSelection()` 获取文本坐标
-- Y 轴按 `preferredLineHeight` 归一化对齐到行边界
-- 涂色用 `painter`（文字背后），删除线用 `foregroundPainter`（文字前方）
-- 删除线 `strokeWidth` 从 2.0 降为 1.0，匹配下划线厚度
+### 修改/新增文件
 
-## Git 历史
+- 新增: `lib/services/toast_service.dart`、`lib/widgets/toast_overlay.dart`、`lib/models/user_config.dart`
+- 重写: `lib/widgets/editor_page.dart`、`lib/widgets/sidebar.dart`
+- 修改: `lib/pages/home_page.dart`、`lib/providers/app_providers.dart`、`lib/services/storage_service.dart`
 
-12 次提交覆盖全部阶段1功能与修复。
+### 归档笔记
+
+- `.ai/dev/note/double_dialog_guard.md`
+- `.ai/dev/note/global_toast_system.md`
+- `.ai/dev/note/ref_listen_unmount.md`
+- `.ai/dev/note/reading_mode_layout.md`
+- `.ai/dev/note/sidebar_restructure.md`
+
+## 已知问题
+
+无当前已知问题。
+
+## 当前代码状态
+
+所有改动已提交至 `phase1-polish` 分支。
