@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +8,8 @@ import '../models/chapter.dart';
 import '../models/annotation.dart';
 import '../providers/app_providers.dart';
 import '../services/storage_service.dart';
+import 'inline_search.dart';
+import 'search_util.dart';
 
 const _uuid = Uuid();
 
@@ -32,9 +33,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   final _titleController = TextEditingController();
 
-  String? _loadedChapterId;
-  String? _loadedVolumeId;
-  String? _loadedBookId;
   bool _isReadingMode = false;
   bool _isLoading = false;
   Chapter? _currentChapter;
@@ -53,15 +51,16 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   final _readAreaKey = GlobalKey();
   RenderEditable? _cachedRenderEditable;
 
-  Timer? _countdownTimer;
-  String _savedContent = '';
-  String _savedAnnotationsJson = '';
-  bool _hasUnsavedChanges = false;
-  String _autoSaveStatus = '';
-  int _autoSaveCountdown = -1;
-  bool _isChangingChapter = false;
-  bool _onChapterChangingGuard = false;
-  bool _saveCallbackRegistered = false;
+  Timer? _saveDebounceTimer;
+  DateTime? _lastSaveTime;
+  bool _savingGuard = false;
+
+  bool _showInlineSearch = false;
+  String _inlineSearchQuery = '';
+  List<SearchMatch> _searchMatches = [];
+  int _currentSearchIndex = -1;
+
+  final _writeAreaKey = GlobalKey();
 
   RenderEditable? _findRenderEditable(RenderObject root) {
     if (root is RenderEditable) return root;
@@ -76,7 +75,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   void initState() {
     super.initState();
     _writeController.addListener(_updateWordCount);
-    _writeController.addListener(_markWriteDirty);
+    _writeController.addListener(_onWriteChanged);
     _readController.addListener(_onReadSelectionChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -92,9 +91,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _saveDebounceTimer?.cancel();
     _writeController.removeListener(_updateWordCount);
-    _writeController.removeListener(_markWriteDirty);
+    _writeController.removeListener(_onWriteChanged);
     _writeController.dispose();
     _writeScrollController.dispose();
     _writeFocusNode.dispose();
@@ -105,6 +104,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     super.dispose();
   }
 
+  // ==================== 字数统计 ====================
+
   void _updateWordCount() {
     final text = _isReadingMode ? _readController.text : _writeController.text;
     final chars = text.replaceAll(RegExp(r'\s'), '').length;
@@ -113,94 +114,100 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     }
   }
 
-  void _markWriteDirty() {
-    _checkDirty();
-    if (_hasUnsavedChanges) {
-      _resetAutoSaveCountdown();
+  // ==================== 节流保存（最低间隔1秒） ====================
+
+  void _onWriteChanged() {
+    if (!_isReadingMode) {
+      _markDirty();
+      _scheduleDebouncedSave();
     }
   }
 
-  void _markAnnotationsDirty() {
-    _checkDirty();
-    if (_hasUnsavedChanges) {
-      _resetAutoSaveCountdown();
+  void _onAnnotationsChanged() {
+    if (_isReadingMode) {
+      _markDirty();
+      _scheduleDebouncedSave();
     }
+  }
+
+  void _markDirty() {
+    ref.read(hasUnsavedChangesProvider.notifier).state = true;
   }
 
   void _clearDirty() {
-    _hasUnsavedChanges = false;
-    _savedContent = _writeController.text;
-    _savedAnnotationsJson = jsonEncode(_readController.annotations.map((a) => a.toJson()).toList());
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }
 
-  void _checkDirty() {
-    final textDirty = _isReadingMode
-        ? false
-        : _writeController.text != _savedContent;
-    final annotationDirty = _isReadingMode
-        ? _readController.annotations.toString() != _savedAnnotationsJson
-        : false;
-    final isDirty = textDirty || annotationDirty;
-    if (isDirty != _hasUnsavedChanges) {
-      setState(() => _hasUnsavedChanges = isDirty);
-      ref.read(hasUnsavedChangesProvider.notifier).state = isDirty;
-      if (!isDirty) {
-        _autoSaveCountdown = -1;
-        setState(() => _autoSaveStatus = '');
-        _countdownTimer?.cancel();
-        _startAutoSaveTimer();
-      }
+  void _scheduleDebouncedSave() {
+    _saveDebounceTimer?.cancel();
+    final now = DateTime.now();
+    final elapsed =
+        _lastSaveTime != null ? now.difference(_lastSaveTime!) : null;
+    if (elapsed == null || elapsed > const Duration(seconds: 1)) {
+      _saveCurrentChapter(silent: true);
+    } else {
+      final remainingMs =
+          1000 - elapsed.inMilliseconds;
+      _saveDebounceTimer = Timer(Duration(milliseconds: remainingMs), () {
+        _saveCurrentChapter(silent: true);
+      });
     }
   }
 
-  void _startAutoSaveTimer() {
-    _countdownTimer?.cancel();
-    _autoSaveCountdown = -1;
-    setState(() => _autoSaveStatus = '');
-    final configAsync = ref.read(userConfigProvider);
-    configAsync.whenData((config) {
-      final interval = config.autoSaveIntervalSeconds;
-      _autoSaveCountdown = interval;
-      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        if (_hasUnsavedChanges) {
-          _autoSaveCountdown--;
-          if (_autoSaveCountdown <= 0) {
-            _autoSaveCountdown = 0;
-            _autoSave();
-          } else {
-            setState(() => _autoSaveStatus = '自动保存 ${_autoSaveCountdown}s');
-          }
-        } else {
-          if (_autoSaveCountdown != interval) {
-            _autoSaveCountdown = interval;
-            setState(() => _autoSaveStatus = '');
-          }
-        }
-      });
+  // ==================== 章节切换（无弹窗，直接保存后切换） ====================
+
+  void _handleChapterSwitch() {
+    if (_savingGuard) return;
+    _savingGuard = true;
+    Future.microtask(() async {
+      await _saveCurrentChapter(silent: true);
+      if (mounted) _loadCurrentChapter();
+      _savingGuard = false;
     });
   }
 
-  void _resetAutoSaveCountdown() {
-    final interval = ref.read(userConfigProvider).whenOrNull(
-          data: (c) => c.autoSaveIntervalSeconds,
-        ) ?? 10;
-    _autoSaveCountdown = interval;
-    setState(() {});
+  void _handleChapterLeave() {
+    _saveDebounceTimer?.cancel();
+    _saveCurrentChapter(silent: true);
+    _clearChapterState();
   }
 
-  Future<void> _autoSave() async {
-    if (!_hasUnsavedChanges) return;
-    await _saveCurrentChapter(silent: true);
-    _autoSaveCountdown = ref.read(userConfigProvider).whenOrNull(
-          data: (c) => c.autoSaveIntervalSeconds,
-        ) ?? 10;
-    if (mounted) {
-      setState(() => _autoSaveStatus = '');
-      ref.read(toastProvider.notifier).show('自动保存成功');
+  void _clearChapterState() {
+    _writeController.text = '';
+    _readController.text = '';
+    _readController.annotations = [];
+    _currentChapter = null;
+    _clearDirty();
+  }
+
+  // ==================== 保存 ====================
+
+  Future<void> _saveCurrentChapter({bool silent = false}) async {
+    final bookId = ref.read(currentBookIdProvider);
+    final volumeId = ref.read(currentVolumeIdProvider);
+    final chapterId = ref.read(currentChapterIdProvider);
+    if (bookId == null || volumeId == null || chapterId == null) return;
+    if (_currentChapter == null) return;
+
+    final text = _isReadingMode ? _readController.text : _writeController.text;
+    _currentChapter!.content = text;
+    if (_isReadingMode) {
+      _currentChapter!.annotations = List.from(_readController.annotations);
+    }
+    _currentChapter!.updatedAt = DateTime.now();
+
+    final storage = StorageService.instance;
+    await storage.saveChapter(bookId, volumeId, _currentChapter!);
+
+    _clearDirty();
+    _lastSaveTime = DateTime.now();
+
+    if (!silent && mounted) {
+      ref.read(toastProvider.notifier).show('保存成功');
     }
   }
+
+  // ==================== 加载章节 ====================
 
   Future<void> _loadCurrentChapter() async {
     if (!mounted) return;
@@ -211,135 +218,25 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     await _loadChapter(bookId, volumeId, chapterId);
   }
 
-  // ==================== 章节切换（未保存检测） ====================
+  Future<void> _loadChapter(
+    String bookId,
+    String volumeId,
+    String chapterId,
+  ) async {
+    setState(() => _isLoading = true);
+    final storage = StorageService.instance;
+    final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
 
-  void _onChapterChanging(String newChapterId) {
-    if (_isChangingChapter || _onChapterChangingGuard) return;
-    _onChapterChangingGuard = true;
-    if (_hasUnsavedChanges && _loadedChapterId != null) {
-      ref.read(currentChapterIdProvider.notifier).state = _loadedChapterId;
-      _showUnsavedDialog(
-        onSave: () async {
-          await _saveCurrentChapter(silent: true);
-          if (!mounted) return;
-          _isChangingChapter = false;
-          _onChapterChangingGuard = false;
-          ref.read(currentChapterIdProvider.notifier).state = newChapterId;
-          _loadCurrentChapter();
-        },
-        onDiscard: () {
-          if (!mounted) return;
-          _clearDirty();
-          _isChangingChapter = false;
-          _onChapterChangingGuard = false;
-          ref.read(currentChapterIdProvider.notifier).state = newChapterId;
-          _loadCurrentChapter();
-        },
-        onCancel: () {
-          _isChangingChapter = false;
-          _onChapterChangingGuard = false;
-          _restoreProviderState();
-        },
-      );
-    } else {
-      if (!mounted) return;
-      _isChangingChapter = false;
-      _onChapterChangingGuard = false;
-      _loadCurrentChapter();
+    if (chapter != null) {
+      _writeController.text = chapter.content;
+      _readController.text = chapter.content;
+      _readController.annotations = List.from(chapter.annotations);
+      _currentChapter = chapter;
     }
-  }
-
-  void _restoreProviderState() {
-    _isChangingChapter = true;
-    _onChapterChangingGuard = true;
-    ref.read(currentBookIdProvider.notifier).state = _loadedBookId;
-    ref.read(currentVolumeIdProvider.notifier).state = _loadedVolumeId;
-    ref.read(currentChapterIdProvider.notifier).state = _loadedChapterId;
-    Future.microtask(() {
-      _isChangingChapter = false;
-      _onChapterChangingGuard = false;
-    });
-  }
-
-  void _onLeavingChapter() {
-    if (_isChangingChapter || _onChapterChangingGuard) return;
-    _onChapterChangingGuard = true;
-    _showUnsavedDialog(
-      onSave: () async {
-        await _saveCurrentChapter(silent: true);
-        _isChangingChapter = false;
-        _onChapterChangingGuard = false;
-        ref.read(currentChapterIdProvider.notifier).state = null;
-        ref.read(currentVolumeIdProvider.notifier).state = null;
-        ref.read(currentBookIdProvider.notifier).state = null;
-        _clearChapterState();
-      },
-      onDiscard: () {
-        _clearDirty();
-        _isChangingChapter = false;
-        _onChapterChangingGuard = false;
-        ref.read(currentChapterIdProvider.notifier).state = null;
-        ref.read(currentVolumeIdProvider.notifier).state = null;
-        ref.read(currentBookIdProvider.notifier).state = null;
-        _clearChapterState();
-      },
-      onCancel: () {
-        _isChangingChapter = false;
-        _onChapterChangingGuard = false;
-        _restoreProviderState();
-      },
-    );
-  }
-
-  Future<void> _showUnsavedDialog({
-    required Future<void> Function() onSave,
-    required VoidCallback onDiscard,
-    required VoidCallback onCancel,
-  }) async {
-    _isChangingChapter = true;
-    final action = await showDialog<_SaveDialogAction>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('未保存的更改'),
-        content: const Text('当前章节有未保存的编辑内容。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.cancel),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.discard),
-            child: const Text('放弃'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(_SaveDialogAction.save),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    switch (action) {
-      case _SaveDialogAction.save:
-        await onSave();
-      case _SaveDialogAction.discard:
-        onDiscard();
-      case _SaveDialogAction.cancel:
-      case null:
-        onCancel();
-    }
-  }
-
-  void _clearChapterState() {
-    _writeController.text = '';
-    _readController.text = '';
-    _readController.annotations = [];
-    _currentChapter = null;
-    _loadedChapterId = null;
-    _loadedVolumeId = null;
-    _loadedBookId = null;
+    _isReadingMode = false;
     _clearDirty();
-    _autoSaveStatus = '';
-    _autoSaveCountdown = -1;
+    _lastSaveTime = null;
+    setState(() => _isLoading = false);
   }
 
   // ==================== 构建 ====================
@@ -348,34 +245,35 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   Widget build(BuildContext context) {
     ref.listen(currentChapterIdProvider, (prev, next) {
       if (!mounted) return;
-      if (prev != next && next != null && !_isChangingChapter) {
-        _onChapterChanging(next);
-      } else if (prev != null && next == null && _hasUnsavedChanges && !_isChangingChapter) {
-        _onLeavingChapter();
+      if (prev != next && next != null) {
+        _handleChapterSwitch();
+      } else if (prev != null && next == null) {
+        _handleChapterLeave();
       }
     });
-    ref.listen(currentVolumeIdProvider, (prev, next) {
-      if (!mounted) return;
-      if (prev != null && next == null && _hasUnsavedChanges && _loadedChapterId != null && !_isChangingChapter) {
-        _onLeavingChapter();
+
+    ref.listen(autoInlineSearchProvider, (prev, next) {
+      if (next != null && next.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _showInlineSearch = true;
+              _inlineSearchQuery = next;
+            });
+            ref.read(autoInlineSearchProvider.notifier).state = null;
+          }
+        });
       }
     });
-    ref.listen(currentBookIdProvider, (prev, next) {
-      if (!mounted) return;
-      if (prev != null && next == null && _hasUnsavedChanges && _loadedChapterId != null && !_isChangingChapter) {
-        _onLeavingChapter();
-      }
-    });
-    if (!_saveCallbackRegistered) {
-      _saveCallbackRegistered = true;
+
+    if (ref.read(onExitSaveProvider) == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ref.read(onExitSaveProvider.notifier).state = _saveCurrentChapter;
+          ref.read(onExitSaveProvider.notifier).state = () async {
+            await _saveCurrentChapter(silent: true);
+          };
         }
       });
-    }
-    if (_countdownTimer == null && _currentChapter != null) {
-      _startAutoSaveTimer();
     }
 
     final bookId = ref.watch(currentBookIdProvider);
@@ -404,6 +302,27 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         },
         child: Column(
           children: [
+            if (_showInlineSearch)
+              InlineSearchOverlay(
+                key: ValueKey(_inlineSearchQuery),
+                controller: _isReadingMode ? _readController : _writeController,
+                scrollController:
+                    _isReadingMode ? _readScrollController : _writeScrollController,
+                textAreaKey:
+                    _isReadingMode ? _readAreaKey : _writeAreaKey,
+                initialQuery: _inlineSearchQuery,
+                onClose: () => setState(() {
+                  _showInlineSearch = false;
+                  _inlineSearchQuery = '';
+                  _searchMatches = [];
+                  _currentSearchIndex = -1;
+                }),
+                onMatchesChanged: (matches, query, currentIndex) => setState(() {
+                  _searchMatches = matches;
+                  _inlineSearchQuery = query;
+                  _currentSearchIndex = currentIndex;
+                }),
+              ),
             _buildTitleBar(),
             Expanded(
               child: _isReadingMode ? _buildReadingMode() : _buildWritingMode(),
@@ -479,11 +398,20 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             isActive: _isReadingMode,
             onPressed: () => _switchMode(true),
           ),
-          const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.save),
-            tooltip: '保存 (Ctrl+S)',
-            onPressed: _hasUnsavedChanges ? _saveCurrentChapter : null,
+            icon: Icon(
+              _showInlineSearch ? Icons.search_off : Icons.search,
+              size: 18,
+            ),
+            tooltip: '章节内搜索',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(() {
+              _showInlineSearch = !_showInlineSearch;
+              if (!_showInlineSearch) {
+                _inlineSearchQuery = '';
+                _searchMatches = [];
+              }
+            }),
           ),
         ],
       ),
@@ -515,13 +443,14 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       _selectionActive = false;
     });
     _updateWordCount();
-    _checkDirty();
   }
 
   // ==================== 写作模式 ====================
 
   Widget _buildWritingMode() {
+    final showHighlights = _showInlineSearch && _searchMatches.isNotEmpty;
     return Container(
+      key: _writeAreaKey,
       color: Theme.of(context).colorScheme.surface,
       child: Stack(
         children: [
@@ -555,7 +484,16 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               ),
             ),
           ),
-          _buildAutoSaveNotification(),
+          if (showHighlights)
+            CustomPaint(
+              painter: _SearchHighlightPainter(
+                matches: _searchMatches,
+                currentIndex: _currentSearchIndex,
+                areaKey: _writeAreaKey,
+                scrollController: _writeScrollController,
+                textController: _writeController,
+              ),
+            ),
         ],
       ),
     );
@@ -623,58 +561,35 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                 ),
               ),
             ),
-                if (showToolbar)
-                  Positioned(
-                    top: _toolbarBelow
-                        ? _toolbarOffset.dy + 8
-                        : _toolbarOffset.dy - 140,
-                    left: (_toolbarOffset.dx - 155).clamp(0, double.infinity),
-                    child: Focus(
-                      canRequestFocus: false,
-                      descendantsAreFocusable: false,
-                      child: GestureDetector(
-                        onTap: () => _readFocusNode.requestFocus(),
-                        child: Material(
-                          elevation: 8,
-                          borderRadius: BorderRadius.circular(12),
-                          child: _buildAnnotationToolbar(),
-                        ),
-                      ),
+            if (showToolbar)
+              Positioned(
+                top: _toolbarBelow
+                    ? _toolbarOffset.dy + 8
+                    : _toolbarOffset.dy - 140,
+                left: (_toolbarOffset.dx - 155).clamp(0, double.infinity),
+                child: Focus(
+                  canRequestFocus: false,
+                  descendantsAreFocusable: false,
+                  child: GestureDetector(
+                    onTap: () => _readFocusNode.requestFocus(),
+                    child: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(12),
+                      child: _buildAnnotationToolbar(),
                     ),
                   ),
-                _buildAutoSaveNotification(),
-              ],
-            ),
-          ),
-        );
-  }
-
-  Widget _buildAutoSaveNotification() {
-    if (_autoSaveStatus.isEmpty) return const SizedBox.shrink();
-    return Positioned(
-      left: 24,
-      bottom: 24,
-      child: Text(
-        _autoSaveStatus,
-        style: TextStyle(
-          fontSize: 12,
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.white
-              : Colors.black87,
-          shadows: [
-            Shadow(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.black.withValues(alpha: 0.7)
-                  : Colors.white.withValues(alpha: 0.8),
-              blurRadius: 2,
-            ),
-            Shadow(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.black.withValues(alpha: 0.5)
-                  : Colors.white.withValues(alpha: 0.6),
-              blurRadius: 4,
-              offset: const Offset(0, 1),
-            ),
+                ),
+              ),
+            if (_showInlineSearch && _searchMatches.isNotEmpty)
+              CustomPaint(
+                painter: _SearchHighlightPainter(
+                  matches: _searchMatches,
+                  currentIndex: _currentSearchIndex,
+                  areaKey: _readAreaKey,
+                  scrollController: _readScrollController,
+                  textController: _readController,
+                ),
+              ),
           ],
         ),
       ),
@@ -733,8 +648,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
       _toolbarBelow = selTop < areaHeight / 2;
       _toolbarOffset = Offset(selMidX, _toolbarBelow ? selBottom : selTop);
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   Widget _buildAnnotationToolbar() {
@@ -1017,8 +931,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = colorHex);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
-    _markAnnotationsDirty();
-    _autoSaveAnnotations();
+    _onAnnotationsChanged();
   }
 
   void _clearActiveAnnotation() {
@@ -1044,71 +957,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     setState(() => _activeColor = null);
     _readController._rebuildText();
     _readFocusNode.requestFocus();
-    _markAnnotationsDirty();
-    _autoSaveAnnotations();
-  }
-
-  void _autoSaveAnnotations() {
-    _currentChapter?.annotations = List.from(_readController.annotations);
-    _saveCurrentChapter(silent: true);
-  }
-
-  // ==================== 保存 ====================
-
-  Future<void> _saveCurrentChapter({bool silent = false}) async {
-    final bookId = ref.read(currentBookIdProvider);
-    final volumeId = ref.read(currentVolumeIdProvider);
-    final chapterId = ref.read(currentChapterIdProvider);
-    if (bookId == null || volumeId == null || chapterId == null) return;
-    if (_currentChapter == null) return;
-
-    final text = _isReadingMode ? _readController.text : _writeController.text;
-    _currentChapter!.content = text;
-    if (_isReadingMode) {
-      _currentChapter!.annotations = List.from(_readController.annotations);
-    }
-    _currentChapter!.updatedAt = DateTime.now();
-
-    final storage = StorageService.instance;
-    await storage.saveChapter(bookId, volumeId, _currentChapter!);
-
-    _clearDirty();
-
-    if (!silent && mounted) {
-      ref.read(toastProvider.notifier).show('保存成功');
-    }
-  }
-
-  // ==================== 加载章节 ====================
-
-  Future<void> _loadChapter(
-    String bookId,
-    String volumeId,
-    String chapterId,
-  ) async {
-    setState(() => _isLoading = true);
-    final storage = StorageService.instance;
-    final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
-    _loadedChapterId = chapterId;
-    _loadedVolumeId = volumeId;
-    _loadedBookId = bookId;
-
-    _savedContent = chapter?.content ?? '';
-    _savedAnnotationsJson = (chapter?.annotations ?? []).toString();
-
-    if (chapter != null) {
-      _writeController.text = chapter.content;
-      _readController.text = chapter.content;
-      _readController.annotations = List.from(chapter.annotations);
-      _currentChapter = chapter;
-    }
-    _isReadingMode = false;
-    _hasUnsavedChanges = false;
-    ref.read(hasUnsavedChangesProvider.notifier).state = false;
-    _autoSaveStatus = '';
-    _autoSaveCountdown = -1;
-    _startAutoSaveTimer();
-    setState(() => _isLoading = false);
+    _onAnnotationsChanged();
   }
 
   // ==================== 空状态 / 书籍信息 ====================
@@ -1156,8 +1005,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     );
   }
 }
-
-enum _SaveDialogAction { save, discard, cancel }
 
 class _ModeButton extends StatelessWidget {
   final IconData icon;
@@ -1436,5 +1283,93 @@ class _DecorationPainter extends CustomPainter {
     return annotations != oldDelegate.annotations ||
         drawHighlights != oldDelegate.drawHighlights ||
         drawStrikethroughs != oldDelegate.drawStrikethroughs;
+  }
+}
+
+// ==================== 搜索高亮绘制器 ====================
+
+class _SearchHighlightPainter extends CustomPainter {
+  final List<SearchMatch> matches;
+  final int currentIndex;
+  final GlobalKey areaKey;
+  final ScrollController scrollController;
+  final TextEditingController textController;
+
+  _SearchHighlightPainter({
+    required this.matches,
+    required this.currentIndex,
+    required this.areaKey,
+    required this.scrollController,
+    required this.textController,
+  }) : super(repaint: Listenable.merge([scrollController, textController]));
+
+  static RenderEditable? _findRenderEditable(RenderObject root) {
+    if (root is RenderEditable) return root;
+    RenderEditable? found;
+    root.visitChildren((child) {
+      found ??= _findRenderEditable(child);
+    });
+    return found;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (matches.isEmpty) return;
+    final areaBox = areaKey.currentContext?.findRenderObject() as RenderBox?;
+    if (areaBox == null || !areaBox.attached) return;
+
+    final re = _findRenderEditable(areaBox);
+    if (re == null || !re.attached) return;
+
+    final reGlobal = re.localToGlobal(Offset.zero);
+    final areaGlobal = areaBox.localToGlobal(Offset.zero);
+    final reOffset = reGlobal - areaGlobal;
+
+    final lineHeight = re.preferredLineHeight;
+    final scrollOffset = scrollController.hasClients
+        ? scrollController.offset
+        : 0.0;
+
+    final regularPaint = Paint()
+      ..color = Colors.yellow.withValues(alpha: 0.18)
+      ..style = PaintingStyle.fill;
+
+    final currentPaint = Paint()
+      ..color = Colors.orange.withValues(alpha: 0.45)
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < matches.length; i++) {
+      final match = matches[i];
+      final isCurrent = i == currentIndex;
+      final paint = isCurrent ? currentPaint : regularPaint;
+
+      final selection = TextSelection(
+        baseOffset: match.start,
+        extentOffset: match.end,
+      );
+
+      final boxes = re.getBoxesForSelection(selection);
+      if (boxes.isEmpty) continue;
+
+      for (final box in boxes) {
+        final textPainterTop = box.top + scrollOffset;
+        final lineIndex = (textPainterTop / lineHeight).round();
+        final normalizedTop = lineIndex * lineHeight - scrollOffset;
+        final normalizedBottom = normalizedTop + lineHeight;
+
+        final left = box.left + reOffset.dx;
+        final right = box.right + reOffset.dx;
+        final top = normalizedTop + reOffset.dy;
+        final bottom = normalizedBottom + reOffset.dy;
+
+        canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SearchHighlightPainter oldDelegate) {
+    return matches != oldDelegate.matches ||
+        currentIndex != oldDelegate.currentIndex;
   }
 }

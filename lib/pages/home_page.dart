@@ -15,6 +15,7 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   AppLifecycleListener? _lifecycleListener;
+  bool _inspectorVisible = false;
 
   @override
   void initState() {
@@ -74,6 +75,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final currentChapterId = ref.watch(currentChapterIdProvider);
+
     return Scaffold(
       body: Stack(
         children: [
@@ -81,9 +84,55 @@ class _HomePageState extends ConsumerState<HomePage> {
             children: [
               const Sidebar(),
               Expanded(child: EditorPage()),
+              if (_inspectorVisible)
+                _buildInspectorPanel(context, currentChapterId),
             ],
           ),
           const ToastOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspectorPanel(BuildContext context, String? chapterId) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 280,
+      color: theme.colorScheme.surfaceContainerLow,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border(
+                  bottom: BorderSide(color: theme.dividerColor)),
+            ),
+            child: Row(
+              children: [
+                const Text('属性面板',
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => setState(() => _inspectorVisible = false),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  chapterId != null ? '章节属性将在知识库模块中实现' : '选中一个章节以查看属性',
+                  style: TextStyle(
+                      fontSize: 13, color: theme.colorScheme.outline),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -1,5 +1,7 @@
 # 计划变更日志
 
+- [会话归档] 宿主改造完成 + UX重构 + 搜索替换功能，18文件变更，flutter analyze零问题 — 2026-05-01 19:20
+- [phase2/phase2_1.md](./phase2/phase2_1.md) 子阶段2.1宿主改造完成：Drift集成+模块接口+双写+UI扩展槽 — 2026-05-01 17:07
 - [phase1/index.md](./phase1/index.md) 创建阶段1计划 — 2026-04-25 00:10
 - [phase1/index.md](./phase1/index.md) 更新阶段1步骤（移除 flutter_quill，改为纯文本+阅读标注模式） — 2026-04-25 01:30
 - [phase1/index.md](./phase1/index.md) 新增重命名功能需求 — 2026-04-25 01:30

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/database/database_service.dart';
 import 'pages/home_page.dart';
 import 'services/storage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.instance.init();
+  await DatabaseService.instance.init(StorageService.instance.dataDir);
   runApp(const ProviderScope(child: NovelCreateApp()));
 }
 

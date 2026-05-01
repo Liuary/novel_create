@@ -96,3 +96,7 @@
 ## 已知限制
 
 - Flutter `TextStyle.decorationColor` 只支持单一颜色。同一段文字的下划线和删除线共享颜色（以最后应用的标注颜色为准）。涂色使用 `backgroundColor` 独立通道不受影响。
+
+## 强化
+
+- [搜索与替换功能](./phase1_enhance_search.md) — 左侧全局搜索 + 编辑区内联搜索替换
