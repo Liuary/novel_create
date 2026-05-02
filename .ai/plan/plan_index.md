@@ -10,4 +10,5 @@
   - [子阶段 2.4a - 灵感模块](./phase2/phase2_4a.md) 🔜
   - [子阶段 2.4b - 物品模块](./phase2/phase2_4b.md) 🔜
   - [子阶段 2.5 - 打磨与三期预制](./phase2/phase2_5.md) 🔜
+  - [子阶段 2.arch - 架构优化](./phase2/phase2_arch.md) 📋 方案已制定
 - [阶段3 - AI 辅助创作引擎](./phase3/index.md) — 展望计划已制定（5 子阶段），待二期完成后细化

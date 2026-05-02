@@ -1,6 +1,7 @@
 # 计划变更日志
 
-- [phase2/phase2_2.md](./phase2/phase2_2.md) Liuary: 大纲模块打磨完成 — 拖拽排序+可视化预览+编辑器集成+交互打磨，flutter analyze零问题 — 2026-05-02 21:03
+- [phase2/phase2_arch.md](./phase2/phase2_arch.md) Liuary: 架构优化方案制定 — 模块注册去硬编码(modules.dart聚合) + ModuleContext规范化(Riverpod统一) + EventBus延后至阶段3 — 2026-05-02 21:13
+- [phase2/phase2_2.md](./phase2/phase2_2.md) Liuary: 大纲模块打磨完成 — 拖拽排序+可视化预览+编辑器集成+交互打磨 — 2026-05-02 21:03
 - [phase3/index.md](./phase3/index.md) 阶段3展望计划：5 子阶段（单AI验证/多路并行审阅/多版本交付/知识库自动更新/风格检测集成），基于 temp_plan_03.md — 2026-05-01 19:57
 - [phase2/] 阶段2计划细化：拆分为共享层 + 5个独立模块计划（大纲/角色/背景/灵感/物品）+ 打磨预制，各模块可并行开发 — 2026-05-01 19:40
 - [会话归档] 宿主改造完成 + UX重构 + 搜索替换功能，18文件变更，flutter analyze零问题 — 2026-05-01 19:20

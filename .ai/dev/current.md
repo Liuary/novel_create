@@ -1,4 +1,4 @@
-总进度：阶段2 大纲模块（2.2）完成 — 拖拽排序 + 可视化预览 + 编辑器集成 + 交互打磨，`flutter analyze` 零问题
+总进度：阶段2 大纲模块（2.2）完成 — 拖拽排序+可视化预览+编辑器集成；架构优化方案（2.arch）已制定
 
-@Liuary 大纲模块端到端功能完整：Schema → Repository → KnowledgeModule → UI(树形导航+节点编辑器+章节绑定+可视化) → 注册 → 知识库Tab对接。ModuleContext 实时同步。卷/章/大纲统一拖拽排序（dragMode开关），F2重命名，回车确认，自增命名。下一步可启动角色模块 2.3a 或背景模块 2.3b。
+@Liuary 大纲模块端到端功能完整。架构分析识别出 3 个多人协作瓶颈（注册硬编码/ModuleContext可变字段/EventBus闲置），已制定 2.arch 优化方案。A（注册去硬编码）/B（ModuleContext规范化）可立即执行。C（EventBus）延后至阶段3。下一步可启动角色模块 2.3a 或执行 2.arch 优化。
 
