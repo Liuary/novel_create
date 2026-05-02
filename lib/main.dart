@@ -8,7 +8,7 @@ import 'core/module/module_registry.dart';
 import 'core/repositories/entity_link_repository.dart';
 import 'core/repositories/chapter_repository.dart';
 import 'core/repositories/volume_repository.dart';
-import 'modules/outline/outline_module.dart';
+import 'modules/modules.dart';
 import 'pages/home_page.dart';
 import 'services/storage_service.dart';
 import 'providers/app_providers.dart' show moduleRegistryProvider;
@@ -49,11 +49,12 @@ void main() async {
         await storage.saveChapter(volume.bookId, volume.id, loaded);
       }
     },
-    currentBookId: null,
   );
 
   final registry = ModuleRegistry();
-  registry.register(OutlineModule());
+  for (final m in createAllModules()) {
+    registry.register(m);
+  }
   await registry.initializeAll(context);
 
   runApp(ProviderScope(

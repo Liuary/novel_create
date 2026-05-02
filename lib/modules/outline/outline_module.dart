@@ -32,6 +32,19 @@ class OutlineModule extends KnowledgeModule {
 
   @override
   Future<Map<String, dynamic>> getContextForChapter(String chapterId) async {
+    String? bookId;
+    try {
+      final ch = await (_context.database.select(_context.database.chapters)
+            ..where((t) => t.id.equals(chapterId)))
+          .getSingleOrNull();
+      if (ch != null) {
+        final vol = await (_context.database.select(_context.database.volumes)
+              ..where((t) => t.id.equals(ch.volumeId)))
+            .getSingleOrNull();
+        bookId = vol?.bookId;
+      }
+    } catch (_) {}
+
     final links = await _context.linkRepo.findByTo(
       toType: 'chapter',
       toId: chapterId,
@@ -41,7 +54,7 @@ class OutlineModule extends KnowledgeModule {
     for (final link in outlineLinks) {
       final node = await _repo.getById(link.fromId);
       if (node == null) continue;
-      final allNodes = await _repo.getAll(bookId: _context.currentBookId);
+      final allNodes = await _repo.getAll(bookId: bookId);
       final nodeMap = {for (final n in allNodes) n.id: n};
       final ancestors = TreeUtils.getAncestors(
         node.id,
@@ -143,7 +156,7 @@ class OutlineModule extends KnowledgeModule {
     final sortOrder = await _repo.getNextSortOrder(parentId);
     await _repo.create(
       id: _uuid.v4(),
-      bookId: bookId ?? _context.currentBookId,
+      bookId: bookId,
       parentId: parentId,
       title: title ?? '新节点',
       sortOrder: sortOrder,
@@ -154,7 +167,7 @@ class OutlineModule extends KnowledgeModule {
     final sortOrder = await _repo.getNextSortOrder(null);
     await _repo.create(
       id: _uuid.v4(),
-      bookId: bookId ?? _context.currentBookId,
+      bookId: bookId,
       title: title ?? '新主线',
       type: 'main_arc',
       sortOrder: sortOrder,
@@ -175,8 +188,6 @@ class OutlineModule extends KnowledgeModule {
   Future<void> moveNode(String id, String? newParentId, int newSortOrder) async {
     await _repo.moveNode(id: id, newParentId: newParentId, newSortOrder: newSortOrder);
   }
-
-  Future<List<OutlineNode>> getAllNodes() => _repo.getAll(bookId: _context.currentBookId);
 }
 
 class _OutlineTreeNav extends ConsumerStatefulWidget {
@@ -557,21 +568,7 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
   bool _showPreview = false;
 
   @override
-  void initState() {
-    super.initState();
-    widget.contextRef.currentBookId = ref.read(currentBookIdProvider);
-    widget.contextRef.currentChapterId = ref.read(currentChapterIdProvider);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    ref.listen(currentChapterIdProvider, (prev, next) {
-      widget.contextRef.currentChapterId = next;
-    });
-    ref.listen(currentBookIdProvider, (prev, next) {
-      widget.contextRef.currentBookId = next;
-    });
-
     final currentChapterId = ref.watch(currentChapterIdProvider);
 
     return ValueListenableBuilder<String?>(
@@ -634,7 +631,7 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
               return OutlineVisualPreview(
                 key: ValueKey(nodeId),
                 repo: widget.repo,
-                bookId: widget.contextRef.currentBookId,
+                bookId: ref.read(currentBookIdProvider),
                 rootNode: snapshot.data!,
               );
             },
