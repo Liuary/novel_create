@@ -34,7 +34,7 @@ class BookRepository {
       (_db.delete(_db.books)..where((t) => t.id.equals(id))).go();
 
   Future<int> count() async {
-    final rows = await _db.select(_db.books).get();
-    return rows.length;
+    final result = await _db.customSelect('SELECT COUNT(*) AS cnt FROM books').getSingle();
+    return result.read<int>('cnt');
   }
 }

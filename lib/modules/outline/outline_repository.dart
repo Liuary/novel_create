@@ -82,20 +82,22 @@ class OutlineRepository {
   }
 
   Future<void> update(OutlineNode node) async {
-    (_db.update(_db.outlineNodes)..where((t) => t.id.equals(node.id)))
+    await (_db.update(_db.outlineNodes)..where((t) => t.id.equals(node.id)))
         .write(node.toCompanion());
   }
 
   Future<void> delete(String id) async {
-    final children = await getChildren(id);
-    for (final child in children) {
-      await delete(child.id);
-    }
-    (_db.delete(_db.entityLinks)
-          ..where((t) => t.fromType.equals('outline_node'))
-          ..where((t) => t.fromId.equals(id)))
-        .go();
-    (_db.delete(_db.outlineNodes)..where((t) => t.id.equals(id))).go();
+    await _db.transaction(() async {
+      final children = await getChildren(id);
+      for (final child in children) {
+        await delete(child.id);
+      }
+      await (_db.delete(_db.entityLinks)
+            ..where((t) => t.fromType.equals('outline_node'))
+            ..where((t) => t.fromId.equals(id)))
+          .go();
+      await (_db.delete(_db.outlineNodes)..where((t) => t.id.equals(id))).go();
+    });
   }
 
   Future<void> moveNode({
@@ -133,7 +135,8 @@ class OutlineRepository {
   }
 
   Future<List<OutlineNode>> searchByKeyword(String query) {
-    final likeQuery = '%$query%';
+    final escaped = query.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+    final likeQuery = '%$escaped%';
     return (_db.select(_db.outlineNodes)
           ..where((t) =>
               t.title.like(likeQuery) | t.description.like(likeQuery)))

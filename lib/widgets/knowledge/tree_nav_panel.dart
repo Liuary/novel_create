@@ -24,6 +24,8 @@ class TreeNavPanel extends StatefulWidget {
   final ValueChanged<String> onSelect;
   final List<PopupMenuItem<String>> Function(String id)? contextMenuBuilder;
   final String Function(String id)? childrenLoader;
+  final Set<String>? expandedIds;
+  final void Function(String id, bool expanded)? onToggleExpand;
 
   const TreeNavPanel({
     super.key,
@@ -32,6 +34,8 @@ class TreeNavPanel extends StatefulWidget {
     required this.onSelect,
     this.contextMenuBuilder,
     this.childrenLoader,
+    this.expandedIds,
+    this.onToggleExpand,
   });
 
   @override
@@ -39,7 +43,8 @@ class TreeNavPanel extends StatefulWidget {
 }
 
 class _TreeNavPanelState extends State<TreeNavPanel> {
-  final Set<String> _expandedIds = {};
+  final Set<String> _localExpandedIds = {};
+  Set<String> get _expandedIds => widget.expandedIds ?? _localExpandedIds;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +53,21 @@ class _TreeNavPanelState extends State<TreeNavPanel> {
     return ListView(
       children: rootNodes.map((n) => _buildNode(n, theme)).toList(),
     );
+  }
+
+  void _toggleExpand(String id) {
+    final isExpanded = _expandedIds.contains(id);
+    if (widget.onToggleExpand != null) {
+      widget.onToggleExpand!(id, !isExpanded);
+      return;
+    }
+    setState(() {
+      if (isExpanded) {
+        _localExpandedIds.remove(id);
+      } else {
+        _localExpandedIds.add(id);
+      }
+    });
   }
 
   Widget _buildNode(TreeNavNode node, ThemeData theme) {
@@ -77,15 +97,7 @@ class _TreeNavPanelState extends State<TreeNavPanel> {
               children: [
                 if (node.hasChildren || children.isNotEmpty)
                   GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedIds.remove(node.id);
-                        } else {
-                          _expandedIds.add(node.id);
-                        }
-                      });
-                    },
+                    onTap: () => _toggleExpand(node.id),
                     child: Icon(
                       isExpanded ? Icons.expand_more : Icons.chevron_right,
                       size: 18,

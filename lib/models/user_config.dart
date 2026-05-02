@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'annotation.dart' as annotation;
 
 class UserConfig {
   int autoSaveIntervalSeconds;
@@ -14,15 +15,7 @@ class UserConfig {
   factory UserConfig.defaults() => UserConfig(
         autoSaveIntervalSeconds: 10,
         autoSaveNotificationDurationSeconds: 2,
-        annotationColorsHex: const [
-          'FF5252',
-          'FF9800',
-          'FFEB3B',
-          '4CAF50',
-          '2196F3',
-          '3F51B5',
-          '9C27B0',
-        ],
+        annotationColorsHex: annotation.annotationColorsHex,
       );
 
   factory UserConfig.fromJson(Map<String, dynamic> json) {
@@ -34,7 +27,7 @@ class UserConfig {
       annotationColorsHex: (json['annotationColorsHex'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
-          UserConfig.defaults().annotationColorsHex,
+          annotation.annotationColorsHex,
     );
   }
 

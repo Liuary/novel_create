@@ -10,6 +10,11 @@ import '../providers/app_providers.dart';
 import '../services/storage_service.dart';
 import 'inline_search.dart';
 import 'search_util.dart';
+import 'editor/mode_button.dart';
+import 'editor/annotated_text_controller.dart';
+import 'editor/decoration_painter.dart';
+import 'editor/search_highlight_painter.dart';
+import '../utils/render_utils.dart';
 
 const _uuid = Uuid();
 
@@ -27,7 +32,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   final _writeScrollController = ScrollController();
   final _writeFocusNode = FocusNode();
 
-  final _readController = _AnnotatedTextController();
+  final _readController = AnnotatedTextController();
   final _readScrollController = ScrollController();
   final _readFocusNode = FocusNode();
 
@@ -62,13 +67,13 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   final _writeAreaKey = GlobalKey();
 
-  RenderEditable? _findRenderEditable(RenderObject root) {
-    if (root is RenderEditable) return root;
-    RenderEditable? found;
-    root.visitChildren((child) {
-      found ??= _findRenderEditable(child);
-    });
-    return found;
+  static int _countNonWhitespace(String text) {
+    int count = 0;
+    for (int i = 0; i < text.length; i++) {
+      final c = text.codeUnitAt(i);
+      if (c != 0x20 && c != 0x0A && c != 0x0D && c != 0x09) count++;
+    }
+    return count;
   }
 
   @override
@@ -111,7 +116,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   void _updateWordCount() {
     final text = _isReadingMode ? _readController.text : _writeController.text;
-    final chars = text.replaceAll(RegExp(r'\s'), '').length;
+    final chars = _countNonWhitespace(text);
     if (chars != _wordCount) {
       setState(() => _wordCount = chars);
     }
@@ -389,13 +394,13 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
-          _ModeButton(
+          ModeButton(
             icon: Icons.edit,
             label: '写作',
             isActive: !_isReadingMode,
             onPressed: () => _switchMode(false),
           ),
-          _ModeButton(
+          ModeButton(
             icon: Icons.visibility,
             label: '阅读',
             isActive: _isReadingMode,
@@ -489,7 +494,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           ),
           if (showHighlights)
             CustomPaint(
-              painter: _SearchHighlightPainter(
+              painter: SearchHighlightPainter(
                 matches: _searchMatches,
                 currentIndex: _currentSearchIndex,
                 areaKey: _writeAreaKey,
@@ -522,7 +527,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           clipBehavior: Clip.hardEdge,
           children: [
             CustomPaint(
-              painter: _DecorationPainter(
+              painter: DecorationPainter(
                 annotations: _readController.annotations,
                 areaKey: _readAreaKey,
                 scrollController: _readScrollController,
@@ -530,7 +535,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                 drawHighlights: true,
                 drawStrikethroughs: false,
               ),
-              foregroundPainter: _DecorationPainter(
+              foregroundPainter: DecorationPainter(
                 annotations: _readController.annotations,
                 areaKey: _readAreaKey,
                 scrollController: _readScrollController,
@@ -585,7 +590,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               ),
             if (_showInlineSearch && _searchMatches.isNotEmpty)
               CustomPaint(
-                painter: _SearchHighlightPainter(
+                painter: SearchHighlightPainter(
                   matches: _searchMatches,
                   currentIndex: _currentSearchIndex,
                   areaKey: _readAreaKey,
@@ -625,7 +630,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       final areaBox =
           _readAreaKey.currentContext?.findRenderObject() as RenderBox?;
       if (areaBox != null) {
-        _cachedRenderEditable = _findRenderEditable(areaBox);
+        _cachedRenderEditable = findRenderEditable(areaBox);
       }
     }
     final re = _cachedRenderEditable;
@@ -932,7 +937,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     );
 
     setState(() => _activeColor = colorHex);
-    _readController._rebuildText();
+    _readController.rebuildText();
     _readFocusNode.requestFocus();
     _onAnnotationsChanged();
   }
@@ -958,7 +963,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     }).toList();
 
     setState(() => _activeColor = null);
-    _readController._rebuildText();
+    _readController.rebuildText();
     _readFocusNode.requestFocus();
     _onAnnotationsChanged();
   }
@@ -1009,370 +1014,3 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   }
 }
 
-class _ModeButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isActive;
-  final VoidCallback onPressed;
-
-  const _ModeButton({
-    required this.icon,
-    required this.label,
-    required this.isActive,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = isActive
-        ? scheme.primary
-        : scheme.onSurface.withValues(alpha: 0.4);
-    return TextButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 16, color: color),
-      label: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        visualDensity: VisualDensity.compact,
-      ),
-    );
-  }
-}
-
-// ==================== 自定义 TextEditingController（阅读模式渲染标注） ====================
-
-class _AnnotatedTextController extends TextEditingController {
-  List<Annotation> annotations = [];
-
-  @override
-  TextSpan buildTextSpan({
-    required BuildContext context,
-    TextStyle? style,
-    required bool withComposing,
-  }) {
-    final text = this.text;
-    if (text.isEmpty) {
-      return TextSpan(text: '', style: style);
-    }
-    final baseStyle = (style ?? const TextStyle(fontSize: 16)).copyWith(
-      height: 1.6,
-    );
-    final segments = _buildSegments(text);
-
-    final merged = <_TextSegment>[];
-    for (final seg in segments) {
-      if (merged.isNotEmpty && merged.last.styleEquals(seg)) {
-        merged.last = merged.last.mergedWith(seg);
-      } else {
-        merged.add(seg);
-      }
-    }
-
-    return TextSpan(
-      style: baseStyle,
-      children: merged.map((seg) {
-        TextStyle s = baseStyle;
-        if (seg.hasUnderline) {
-          s = s.copyWith(
-            decoration: TextDecoration.underline,
-            decorationColor: seg.underlineColor,
-          );
-        }
-        return TextSpan(text: seg.text, style: s);
-      }).toList(),
-    );
-  }
-
-  List<_TextSegment> _buildSegments(String text) {
-    final breakpoints = <int>{0, text.length};
-    for (final a in annotations) {
-      if (a.startOffset >= 0 && a.startOffset <= text.length) {
-        breakpoints.add(a.startOffset);
-      }
-      if (a.endOffset >= 0 && a.endOffset <= text.length) {
-        breakpoints.add(a.endOffset);
-      }
-    }
-    final sorted = breakpoints.toList()..sort();
-
-    final segments = <_TextSegment>[];
-    for (int i = 0; i < sorted.length - 1; i++) {
-      final start = sorted[i];
-      final end = sorted[i + 1];
-      if (start >= end) continue;
-
-      final segText = text.substring(start, end);
-      String? ulColor;
-      String? stColor;
-      String? hlColor;
-
-      for (final a in annotations) {
-        if (a.startOffset <= start && a.endOffset >= end) {
-          switch (a.type) {
-            case AnnotationType.underline:
-              ulColor = a.colorHex;
-            case AnnotationType.strikethrough:
-              stColor = a.colorHex;
-            case AnnotationType.highlight:
-              hlColor = a.colorHex;
-          }
-        }
-      }
-
-      segments.add(
-        _TextSegment(
-          text: segText,
-          hasUnderline: ulColor != null,
-          underlineColor: ulColor != null
-              ? Color(int.parse('FF$ulColor', radix: 16))
-              : null,
-          hasStrikethrough: stColor != null,
-          strikethroughColor: stColor != null
-              ? Color(int.parse('FF$stColor', radix: 16))
-              : null,
-          hasHighlight: hlColor != null,
-          highlightColor: hlColor != null
-              ? Color(int.parse('FF$hlColor', radix: 16))
-              : null,
-        ),
-      );
-    }
-    return segments;
-  }
-
-  void _rebuildText() {
-    final oldText = text;
-    value = TextEditingValue(text: oldText, selection: selection);
-  }
-}
-
-class _TextSegment {
-  final String text;
-  final bool hasUnderline;
-  final Color? underlineColor;
-  final bool hasStrikethrough;
-  final Color? strikethroughColor;
-  final bool hasHighlight;
-  final Color? highlightColor;
-
-  const _TextSegment({
-    required this.text,
-    required this.hasUnderline,
-    this.underlineColor,
-    required this.hasStrikethrough,
-    this.strikethroughColor,
-    required this.hasHighlight,
-    this.highlightColor,
-  });
-
-  bool styleEquals(_TextSegment other) =>
-      hasUnderline == other.hasUnderline &&
-      underlineColor == other.underlineColor &&
-      hasStrikethrough == other.hasStrikethrough &&
-      strikethroughColor == other.strikethroughColor &&
-      hasHighlight == other.hasHighlight &&
-      highlightColor == other.highlightColor;
-
-  _TextSegment mergedWith(_TextSegment other) => _TextSegment(
-        text: text + other.text,
-        hasUnderline: hasUnderline,
-        underlineColor: underlineColor,
-        hasStrikethrough: hasStrikethrough,
-        strikethroughColor: strikethroughColor,
-        hasHighlight: hasHighlight,
-        highlightColor: highlightColor,
-      );
-}
-
-class _DecorationPainter extends CustomPainter {
-  final List<Annotation> annotations;
-  final GlobalKey areaKey;
-  final ScrollController scrollController;
-  final TextEditingController textController;
-  final bool drawHighlights;
-  final bool drawStrikethroughs;
-
-  _DecorationPainter({
-    required this.annotations,
-    required this.areaKey,
-    required this.scrollController,
-    required this.textController,
-    required this.drawHighlights,
-    required this.drawStrikethroughs,
-  }) : super(repaint: Listenable.merge([scrollController, textController]));
-
-  static RenderEditable? _findRenderEditable(RenderObject root) {
-    if (root is RenderEditable) return root;
-    RenderEditable? found;
-    root.visitChildren((child) {
-      found ??= _findRenderEditable(child);
-    });
-    return found;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final areaBox = areaKey.currentContext?.findRenderObject() as RenderBox?;
-    if (areaBox == null || !areaBox.attached) return;
-
-    final re = _findRenderEditable(areaBox);
-    if (re == null || !re.attached) return;
-
-    final reGlobal = re.localToGlobal(Offset.zero);
-    final areaGlobal = areaBox.localToGlobal(Offset.zero);
-    final reOffset = reGlobal - areaGlobal;
-
-    final lineHeight = re.preferredLineHeight;
-    final scrollOffset = scrollController.hasClients
-        ? scrollController.offset
-        : 0.0;
-
-    for (final annotation in annotations) {
-      final isHighlight = annotation.type == AnnotationType.highlight;
-      final isStrikethrough = annotation.type == AnnotationType.strikethrough;
-
-      if (isHighlight && !drawHighlights) continue;
-      if (isStrikethrough && !drawStrikethroughs) continue;
-      if (!isHighlight && !isStrikethrough) continue;
-
-      final selection = TextSelection(
-        baseOffset: annotation.startOffset,
-        extentOffset: annotation.endOffset,
-      );
-
-      final boxes = re.getBoxesForSelection(selection);
-      if (boxes.isEmpty) continue;
-
-      final color = Color(
-        int.parse('FF${annotation.colorHex ?? "FFEB3B"}', radix: 16),
-      );
-
-      for (final box in boxes) {
-        final textPainterTop = box.top + scrollOffset;
-        final lineIndex = (textPainterTop / lineHeight).round();
-        final normalizedTop = lineIndex * lineHeight - scrollOffset;
-        final normalizedBottom = normalizedTop + lineHeight;
-
-        final left = box.left + reOffset.dx;
-        final right = box.right + reOffset.dx;
-        final top = normalizedTop + reOffset.dy;
-        final bottom = normalizedBottom + reOffset.dy;
-
-        if (isHighlight) {
-          final paint = Paint()..color = color.withValues(alpha: 0.3);
-          canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), paint);
-        } else if (isStrikethrough) {
-          final paint = Paint()
-            ..color = color
-            ..strokeWidth = 1.0
-            ..strokeCap = StrokeCap.round;
-          final y = top + (bottom - top) * 0.55;
-          canvas.drawLine(Offset(left, y), Offset(right, y), paint);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DecorationPainter oldDelegate) {
-    return annotations != oldDelegate.annotations ||
-        drawHighlights != oldDelegate.drawHighlights ||
-        drawStrikethroughs != oldDelegate.drawStrikethroughs;
-  }
-}
-
-// ==================== 搜索高亮绘制器 ====================
-
-class _SearchHighlightPainter extends CustomPainter {
-  final List<SearchMatch> matches;
-  final int currentIndex;
-  final GlobalKey areaKey;
-  final ScrollController scrollController;
-  final TextEditingController textController;
-
-  _SearchHighlightPainter({
-    required this.matches,
-    required this.currentIndex,
-    required this.areaKey,
-    required this.scrollController,
-    required this.textController,
-  }) : super(repaint: Listenable.merge([scrollController, textController]));
-
-  static RenderEditable? _findRenderEditable(RenderObject root) {
-    if (root is RenderEditable) return root;
-    RenderEditable? found;
-    root.visitChildren((child) {
-      found ??= _findRenderEditable(child);
-    });
-    return found;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (matches.isEmpty) return;
-    final areaBox = areaKey.currentContext?.findRenderObject() as RenderBox?;
-    if (areaBox == null || !areaBox.attached) return;
-
-    final re = _findRenderEditable(areaBox);
-    if (re == null || !re.attached) return;
-
-    final reGlobal = re.localToGlobal(Offset.zero);
-    final areaGlobal = areaBox.localToGlobal(Offset.zero);
-    final reOffset = reGlobal - areaGlobal;
-
-    final lineHeight = re.preferredLineHeight;
-    final scrollOffset = scrollController.hasClients
-        ? scrollController.offset
-        : 0.0;
-
-    final regularPaint = Paint()
-      ..color = Colors.yellow.withValues(alpha: 0.18)
-      ..style = PaintingStyle.fill;
-
-    final currentPaint = Paint()
-      ..color = Colors.orange.withValues(alpha: 0.45)
-      ..style = PaintingStyle.fill;
-
-    for (int i = 0; i < matches.length; i++) {
-      final match = matches[i];
-      final isCurrent = i == currentIndex;
-      final paint = isCurrent ? currentPaint : regularPaint;
-
-      final selection = TextSelection(
-        baseOffset: match.start,
-        extentOffset: match.end,
-      );
-
-      final boxes = re.getBoxesForSelection(selection);
-      if (boxes.isEmpty) continue;
-
-      for (final box in boxes) {
-        final textPainterTop = box.top + scrollOffset;
-        final lineIndex = (textPainterTop / lineHeight).round();
-        final normalizedTop = lineIndex * lineHeight - scrollOffset;
-        final normalizedBottom = normalizedTop + lineHeight;
-
-        final left = box.left + reOffset.dx;
-        final right = box.right + reOffset.dx;
-        final top = normalizedTop + reOffset.dy;
-        final bottom = normalizedBottom + reOffset.dy;
-
-        canvas.drawRect(Rect.fromLTRB(left, top, right, bottom), paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SearchHighlightPainter oldDelegate) {
-    return matches != oldDelegate.matches ||
-        currentIndex != oldDelegate.currentIndex;
-  }
-}

@@ -34,11 +34,19 @@ class CharacterModule extends KnowledgeModule {
   }
 
   @override
+  void dispose() {
+    selectedId.dispose();
+    super.dispose();
+  }
+
+  @override
   Future<Map<String, dynamic>> getContextForChapter(String chapterId) async {
     final logs = await _repo.getLogsByChapter(chapterId);
+    final charIds = logs.map((l) => l.characterId).toSet();
+    final charMap = await _repo.getByIds(charIds);
     final characters = <Map<String, dynamic>>[];
     for (final log in logs) {
-      final ch = await _repo.getById(log.characterId);
+      final ch = charMap[log.characterId];
       if (ch == null) continue;
       characters.add({
         'id': ch.id,
@@ -156,6 +164,14 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
 
   Future<void> _load() async {
     final bookId = ref.read(currentBookIdProvider);
+    if (bookId == null) {
+      if (!mounted) return;
+      setState(() {
+        _characters = [];
+        _loading = false;
+      });
+      return;
+    }
     final list = await widget.repo.getAll(bookId: bookId);
     if (!mounted) return;
     setState(() {
@@ -190,36 +206,41 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
               ? Center(
                   child: Text('暂无角色',
                       style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 13)))
-              : ListView(
-                  children: _characters.map((ch) {
-                    final isSelected = widget.selectedNotifier.value == ch.id;
-                    return InkWell(
-                      onTap: () => widget.selectedNotifier.value = ch.id,
-                      onSecondaryTapDown: (_) => _showContextMenu(ch),
-                      child: Container(
-                        color: isSelected
-                            ? Theme.of(context).colorScheme.primaryContainer.withAlpha(100)
-                            : Colors.transparent,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: Row(
-                          children: [
-                            Icon(ch.isDead ? Icons.heart_broken : Icons.person,
-                                size: 16, color: ch.isDead ? Colors.red : null),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(ch.name,
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: isSelected ? FontWeight.w600 : null),
-                                  overflow: TextOverflow.ellipsis),
+              : ValueListenableBuilder<String?>(
+                  valueListenable: widget.selectedNotifier,
+                  builder: (context, selectedId, _) {
+                    return ListView(
+                      children: _characters.map((ch) {
+                        final isSelected = selectedId == ch.id;
+                        return InkWell(
+                          onTap: () => widget.selectedNotifier.value = ch.id,
+                          onSecondaryTapDown: (details) => _showContextMenu(ch, details),
+                          child: Container(
+                            color: isSelected
+                                ? Theme.of(context).colorScheme.primaryContainer.withAlpha(100)
+                                : Colors.transparent,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            child: Row(
+                              children: [
+                                Icon(ch.isDead ? Icons.heart_broken : Icons.person,
+                                    size: 16, color: ch.isDead ? Colors.red : null),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(ch.name,
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: isSelected ? FontWeight.w600 : null),
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      }).toList(),
                     );
-                  }).toList(),
+                  },
                 ),
-        ),
+              ),
       ],
     );
   }
@@ -234,25 +255,12 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(hintText: '角色名称'),
-          onSubmitted: (_) {
-            if (controller.text.trim().isNotEmpty) {
-              widget.module.createCharacter(controller.text.trim(),
-                  bookId: ref.read(currentBookIdProvider)).then((_) => _load());
-              Navigator.pop(ctx);
-            }
-          },
+          onSubmitted: (_) => _doCreate(ctx, controller),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           FilledButton(
-            onPressed: () async {
-              if (controller.text.trim().isNotEmpty) {
-                await widget.module.createCharacter(controller.text.trim(),
-                    bookId: ref.read(currentBookIdProvider));
-                await _load();
-                if (ctx.mounted) Navigator.pop(ctx);
-              }
-            },
+            onPressed: () => _doCreate(ctx, controller),
             child: const Text('创建'),
           ),
         ],
@@ -260,10 +268,20 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
     );
   }
 
-  void _showContextMenu(Character ch) {
+  Future<void> _doCreate(BuildContext dialogCtx, TextEditingController controller) async {
+    final name = controller.text.trim();
+    if (name.isEmpty) return;
+    await widget.module.createCharacter(name,
+        bookId: ref.read(currentBookIdProvider));
+    await _load();
+    if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+  }
+
+  void _showContextMenu(Character ch, TapDownDetails details) {
+    final pos = details.globalPosition;
     showMenu(
       context: context,
-      position: RelativeRect.fromLTRB(100, 100, 200, 200),
+      position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
       items: [
         PopupMenuItem(
           child: const Text('重命名'),
@@ -293,22 +311,41 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
         ),
         PopupMenuItem(
           child: const Text('删除', style: TextStyle(color: Colors.red)),
-          onTap: () async {
-            await widget.module.deleteCharacter(ch.id);
-            if (widget.selectedNotifier.value == ch.id) {
-              widget.selectedNotifier.value = null;
-            }
-            await _load();
-          },
+          onTap: () => _showDeleteConfirm(ch),
         ),
       ],
+    );
+  }
+
+  void _showDeleteConfirm(Character ch) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除角色「${ch.name}」吗？\n此操作不可撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              await widget.module.deleteCharacter(ch.id);
+              if (widget.selectedNotifier.value == ch.id) {
+                widget.selectedNotifier.value = null;
+              }
+              await _load();
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('删除'),
+          ),
+        ],
+      ),
     );
   }
 }
 
 // ==================== 角色编辑器 ====================
 
-class _CharacterEditorHost extends ConsumerStatefulWidget {
+class _CharacterEditorHost extends StatefulWidget {
   final CharacterModule module;
   final CharacterRepository repo;
   final ValueNotifier<String?> selectedNotifier;
@@ -322,10 +359,10 @@ class _CharacterEditorHost extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_CharacterEditorHost> createState() => _CharacterEditorHostState();
+  State<_CharacterEditorHost> createState() => _CharacterEditorHostState();
 }
 
-class _CharacterEditorHostState extends ConsumerState<_CharacterEditorHost> {
+class _CharacterEditorHostState extends State<_CharacterEditorHost> {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String?>(
@@ -426,6 +463,7 @@ class _CharacterEditorState extends State<_CharacterEditor> {
   }
 
   Future<void> _save() async {
+    if (!mounted) return;
     if (_character == null) return;
     final updated = _character!.copyWith(
       name: _nameCtrl.text,

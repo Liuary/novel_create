@@ -25,9 +25,9 @@ const annotationColorsHex = [
 class Annotation {
   final String id;
   final AnnotationType type;
-  String? colorHex; // 涂色时使用
-  int startOffset;
-  int endOffset;
+  final String? colorHex;
+  final int startOffset;
+  final int endOffset;
 
   Annotation({
     required this.id,
@@ -64,11 +64,11 @@ class Annotation {
 
   bool contains(int offset) => offset >= startOffset && offset < endOffset;
 
-  Annotation copyWith({int? startOffset, int? endOffset}) {
+  Annotation copyWith({String? colorHex, int? startOffset, int? endOffset}) {
     return Annotation(
       id: id,
       type: type,
-      colorHex: colorHex,
+      colorHex: colorHex ?? this.colorHex,
       startOffset: startOffset ?? this.startOffset,
       endOffset: endOffset ?? this.endOffset,
     );

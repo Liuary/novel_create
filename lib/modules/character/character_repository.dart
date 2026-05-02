@@ -16,7 +16,7 @@ class CharacterRepository {
   }
 
   Future<void> update(Character character) async {
-    (_db.update(_db.characters)..where((t) => t.id.equals(character.id)))
+    await (_db.update(_db.characters)..where((t) => t.id.equals(character.id)))
         .write(character.toCompanion());
   }
 
@@ -25,6 +25,16 @@ class CharacterRepository {
           ..where((t) => t.id.equals(id)))
         .getSingleOrNull();
     return db == null ? null : Character.fromDb(db);
+  }
+
+  Future<Map<String, Character>> getByIds(Set<String> ids) async {
+    if (ids.isEmpty) return {};
+    final rows = await (_db.select(_db.characters)
+          ..where((t) => t.id.isIn(ids)))
+        .get();
+    return {
+      for (final row in rows) row.id: Character.fromDb(row),
+    };
   }
 
   Future<List<Character>> getAll({String? bookId}) {
@@ -37,22 +47,25 @@ class CharacterRepository {
   }
 
   Future<List<Character>> search(String query) {
+    final escaped = query.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
     return (_db.select(_db.characters)..where((t) =>
-            t.name.like('%$query%') | t.aliases.like('%$query%') |
-            t.personalityTags.like('%$query%') | t.background.like('%$query%')))
+            t.name.like('%$escaped%') | t.aliases.like('%$escaped%') |
+            t.personalityTags.like('%$escaped%') | t.background.like('%$escaped%')))
         .get()
         .then((rows) => rows.map(Character.fromDb).toList());
   }
 
   Future<void> delete(String id) async {
-    (_db.delete(_db.characterChapterLogs)
-          ..where((t) => t.characterId.equals(id)))
-        .go();
-    (_db.delete(_db.entityLinks)
-          ..where((t) => t.fromType.equals('character'))
-          ..where((t) => t.fromId.equals(id)))
-        .go();
-    (_db.delete(_db.characters)..where((t) => t.id.equals(id))).go();
+    await _db.transaction(() async {
+      await (_db.delete(_db.characterChapterLogs)
+            ..where((t) => t.characterId.equals(id)))
+          .go();
+      await (_db.delete(_db.entityLinks)
+            ..where((t) => t.fromType.equals('character'))
+            ..where((t) => t.fromId.equals(id)))
+          .go();
+      await (_db.delete(_db.characters)..where((t) => t.id.equals(id))).go();
+    });
   }
 
   Future<ChapterLog> addLog(CharacterChapterLogsCompanion entry) async {
@@ -79,6 +92,6 @@ class CharacterRepository {
   }
 
   Future<void> deleteLog(String id) async {
-    (_db.delete(_db.characterChapterLogs)..where((t) => t.id.equals(id))).go();
+    await (_db.delete(_db.characterChapterLogs)..where((t) => t.id.equals(id))).go();
   }
 }

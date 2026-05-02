@@ -46,8 +46,4 @@ class ToastNotifier extends Notifier<List<ToastMessage>> {
       }
     });
   }
-
-  void disposeTimer() {
-    _dismissTimer?.cancel();
-  }
 }

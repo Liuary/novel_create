@@ -27,6 +27,12 @@ class ModuleRegistry {
     }
   }
 
+  void disposeAll() {
+    for (final module in _modules) {
+      module.dispose();
+    }
+  }
+
   Future<void> notifyChapterSaved(String chapterId, String content) async {
     for (final module in _modules) {
       await module.onChapterSaved(chapterId, content);

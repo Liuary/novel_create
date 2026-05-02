@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'search_util.dart';
+import '../utils/render_utils.dart';
 
 enum SearchMode { search, replace }
 
@@ -96,7 +96,7 @@ class _InlineSearchOverlayState extends State<InlineSearchOverlay> {
           widget.textAreaKey.currentContext?.findRenderObject() as RenderBox?;
       if (areaBox == null || !areaBox.attached) return;
 
-      final re = _findRenderEditable(areaBox);
+      final re = findRenderEditable(areaBox);
       if (re == null || !re.attached) return;
 
       try {
@@ -129,15 +129,6 @@ class _InlineSearchOverlayState extends State<InlineSearchOverlay> {
         );
       } catch (_) {}
     });
-  }
-
-  static RenderEditable? _findRenderEditable(RenderObject root) {
-    if (root is RenderEditable) return root;
-    RenderEditable? found;
-    root.visitChildren((child) {
-      found ??= _findRenderEditable(child);
-    });
-    return found;
   }
 
   void _navigateNext() {

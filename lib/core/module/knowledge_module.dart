@@ -26,6 +26,8 @@ abstract class KnowledgeModule {
 
   Future<void> initialize(ModuleContext context);
 
+  void dispose() {}
+
   Future<Map<String, dynamic>> getContextForChapter(String chapterId);
 
   Future<void> onChapterSaved(String chapterId, String content);

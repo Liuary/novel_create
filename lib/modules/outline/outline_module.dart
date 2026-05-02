@@ -11,7 +11,9 @@ import '../../providers/app_providers.dart';
 import '../../widgets/knowledge/tree_nav_panel.dart';
 import 'outline_repository.dart';
 import 'outline_node_model.dart';
-import 'widgets/outline_visual_preview.dart';
+import 'widgets/toggle_chip.dart';
+import 'widgets/preview_node_loader.dart';
+import 'widgets/outline_node_editor.dart';
 
 class OutlineModule extends KnowledgeModule {
   static const entityTypeValue = 'outline_node';
@@ -36,6 +38,12 @@ class OutlineModule extends KnowledgeModule {
   }
 
   @override
+  void dispose() {
+    selectedNodeId.dispose();
+    super.dispose();
+  }
+
+  @override
   Future<Map<String, dynamic>> getContextForChapter(String chapterId) async {
     String? bookId;
     try {
@@ -56,11 +64,11 @@ class OutlineModule extends KnowledgeModule {
     );
     final outlineLinks = links.where((l) => l.fromType == entityType);
     final nodes = <Map<String, dynamic>>[];
+    final allNodes = await _repo.getAll(bookId: bookId);
+    final nodeMap = {for (final n in allNodes) n.id: n};
     for (final link in outlineLinks) {
       final node = await _repo.getById(link.fromId);
       if (node == null) continue;
-      final allNodes = await _repo.getAll(bookId: bookId);
-      final nodeMap = {for (final n in allNodes) n.id: n};
       final ancestors = TreeUtils.getAncestors(
         node.id,
         nodeMap,
@@ -213,6 +221,7 @@ class _OutlineTreeNav extends ConsumerStatefulWidget {
 class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
   List<OutlineNode>? _nodes;
   String? _selectedId;
+  final Set<String> _expandedIds = {};
 
   @override
   void initState() {
@@ -405,6 +414,16 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
         selectedId: _selectedId,
         onSelect: _onSelect,
         contextMenuBuilder: contextMenuFor,
+        expandedIds: _expandedIds,
+        onToggleExpand: (id, expanded) {
+          setState(() {
+            if (expanded) {
+              _expandedIds.add(id);
+            } else {
+              _expandedIds.remove(id);
+            }
+          });
+        },
       );
     }
 
@@ -459,7 +478,9 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
         if (n.parentId == parentId) {
           if (visited.add(n.id)) {
             result.add(n);
-            addChildren(n.id);
+            if (_expandedIds.contains(n.id)) {
+              addChildren(n.id);
+            }
           }
         }
       }
@@ -630,7 +651,7 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
       children: [
         _buildModeToggle(),
         Expanded(
-          child: _OutlineNodeEditor(
+          child: OutlineNodeEditor(
             nodeId: nodeId,
             repo: widget.repo,
             linkRepo: widget.linkRepo,
@@ -646,7 +667,7 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
     return Column(
       children: [
         _buildModeToggle(),
-        Expanded(child: _PreviewNodeLoader(
+        Expanded(child: PreviewNodeLoader(
           repo: widget.repo,
           nodeId: nodeId,
           bookId: ref.read(currentBookIdProvider),
@@ -664,14 +685,14 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
       ),
       child: Row(
         children: [
-          _ToggleChip(
+          ToggleChip(
             label: '详情',
             icon: Icons.edit_note,
             isActive: !_showPreview,
             onTap: () => setState(() => _showPreview = false),
           ),
           const SizedBox(width: 8),
-          _ToggleChip(
+          ToggleChip(
             label: '可视化',
             icon: Icons.account_tree,
             isActive: _showPreview,
@@ -680,354 +701,5 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
         ],
       ),
     );
-  }
-}
-
-class _ToggleChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  const _ToggleChip({
-    required this.label,
-    required this.icon,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: isActive ? scheme.primaryContainer : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16,
-                color: isActive ? scheme.primary : scheme.outline),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                color: isActive ? scheme.primary : scheme.outline,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PreviewNodeLoader extends StatefulWidget {
-  final OutlineRepository repo;
-  final String nodeId;
-  final String? bookId;
-
-  const _PreviewNodeLoader({
-    required this.repo,
-    required this.nodeId,
-    this.bookId,
-  });
-
-  @override
-  State<_PreviewNodeLoader> createState() => _PreviewNodeLoaderState();
-}
-
-class _PreviewNodeLoaderState extends State<_PreviewNodeLoader> {
-  Future<OutlineNode?>? _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _PreviewNodeLoader oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.nodeId != widget.nodeId) _load();
-  }
-
-  void _load() {
-    _future = widget.repo.getById(widget.nodeId);
-    setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<OutlineNode?>(
-      future: _future,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return OutlineVisualPreview(
-          key: ValueKey(widget.nodeId),
-          repo: widget.repo,
-          bookId: widget.bookId,
-          rootNode: snapshot.data!,
-        );
-      },
-    );
-  }
-}
-
-class _OutlineNodeEditor extends StatefulWidget {
-  final String nodeId;
-  final OutlineRepository repo;
-  final EntityLinkRepository linkRepo;
-  final String? currentChapterId;
-  final ValueChanged<String> onTitleChanged;
-
-  const _OutlineNodeEditor({
-    required this.nodeId,
-    required this.repo,
-    required this.linkRepo,
-    this.currentChapterId,
-    required this.onTitleChanged,
-  });
-
-  @override
-  State<_OutlineNodeEditor> createState() => _OutlineNodeEditorState();
-}
-
-class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
-  OutlineNode? _node;
-  final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  final _wordCountController = TextEditingController();
-  String _type = 'free';
-  String _status = 'planning';
-  int _wordCount = 0;
-  List<String>? _boundChapterIds;
-  bool _isBound = false;
-  Timer? _saveTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _OutlineNodeEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.nodeId != widget.nodeId) _load();
-  }
-
-  @override
-  void dispose() {
-    _saveTimer?.cancel();
-    _titleController.dispose();
-    _descController.dispose();
-    _wordCountController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final node = await widget.repo.getById(widget.nodeId);
-    if (node == null) return;
-    final links = await widget.linkRepo.findByFrom(
-      fromType: OutlineModule.entityTypeValue,
-      fromId: widget.nodeId,
-    );
-    final chapterLinks = links.where((l) => l.toType == 'chapter');
-    setState(() {
-      _node = node;
-      _titleController.text = node.title;
-      _descController.text = node.description;
-      _wordCountController.text = node.expectedWordCount.toString();
-      _type = node.type;
-      _status = node.status;
-      _wordCount = node.expectedWordCount;
-      _boundChapterIds = chapterLinks.map((l) => l.toId).toList();
-      _isBound = widget.currentChapterId != null &&
-          chapterLinks.any((l) => l.toId == widget.currentChapterId);
-    });
-  }
-
-  void _scheduleSave() {
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 500), _save);
-  }
-
-  Future<void> _save() async {
-    if (_node == null) return;
-    final updated = _node!.copyWith(
-      title: _titleController.text,
-      description: _descController.text,
-      type: _type,
-      status: _status,
-      expectedWordCount: _wordCount,
-    );
-    await widget.repo.update(updated);
-    widget.onTitleChanged(updated.title);
-  }
-
-  Future<void> _bindChapter() async {
-    if (widget.currentChapterId == null) return;
-    await widget.linkRepo.create(
-      fromType: OutlineModule.entityTypeValue,
-      fromId: widget.nodeId,
-      toType: 'chapter',
-      toId: widget.currentChapterId!,
-      linkType: 'bound_to',
-    );
-    await _load();
-  }
-
-  Future<void> _unbindChapter() async {
-    if (widget.currentChapterId == null) return;
-    final links = await widget.linkRepo.findByFrom(
-      fromType: OutlineModule.entityTypeValue,
-      fromId: widget.nodeId,
-    );
-    for (final link in links) {
-      if (link.toType == 'chapter' && link.toId == widget.currentChapterId) {
-        await widget.linkRepo.deleteById(link.id);
-      }
-    }
-    await _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_node == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _titleController,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              decoration: const InputDecoration(
-                hintText: '节点标题',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (_) => _scheduleSave(),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildDropdown('类型', _type, ['main_arc', 'sub_arc', 'scene', 'free'],
-                    (v) {
-                  setState(() => _type = v);
-                  _scheduleSave();
-                }),
-                const SizedBox(width: 16),
-                _buildDropdown('状态', _status, ['planning', 'writing', 'done'],
-                    (v) {
-                  setState(() => _status = v);
-                  _scheduleSave();
-                }),
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 100,
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      labelText: '预估字数',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    keyboardType: TextInputType.number,
-                    controller: _wordCountController,
-                    onChanged: (v) {
-                      setState(() => _wordCount = int.tryParse(v) ?? 0);
-                      _scheduleSave();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (widget.currentChapterId != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  children: [
-                    if (_isBound)
-                      ElevatedButton.icon(
-                        onPressed: _unbindChapter,
-                        icon: const Icon(Icons.link_off, size: 16),
-                        label: const Text('解绑当前章节'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade100,
-                        ),
-                      )
-                    else
-                      ElevatedButton.icon(
-                        onPressed: _bindChapter,
-                        icon: const Icon(Icons.link, size: 16),
-                        label: const Text('绑定当前章节'),
-                      ),
-                    const SizedBox(width: 12),
-                    if (_boundChapterIds != null && _boundChapterIds!.isNotEmpty)
-                      Text('已绑定 ${_boundChapterIds!.length} 个章节',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.outline)),
-                  ],
-                ),
-              ),
-            TextField(
-              controller: _descController,
-              maxLines: 10,
-              decoration: const InputDecoration(
-                hintText: '节点描述',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
-              ),
-              onChanged: (_) => _scheduleSave(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdown(
-      String label, String value, List<String> options, ValueChanged<String> onChanged) {
-    return Expanded(
-      child: DropdownButtonFormField<String>(
-        key: ValueKey(value),
-        initialValue: value,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        items: options.map((o) => DropdownMenuItem(value: o, child: Text(_typeLabel(o)))).toList(),
-        onChanged: (v) {
-          if (v != null) onChanged(v);
-        },
-      ),
-    );
-  }
-
-  String _typeLabel(String type) {
-    switch (type) {
-      case 'main_arc': return '主线';
-      case 'sub_arc': return '支线';
-      case 'scene': return '场景';
-      case 'free': return '自由';
-      case 'planning': return '规划中';
-      case 'writing': return '写作中';
-      case 'done': return '已完成';
-      default: return type;
-    }
   }
 }

@@ -1,8 +1,8 @@
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:uuid/uuid.dart';
 import '../core/database/database_service.dart';
-import '../core/event/event_bus.dart';
 import '../core/module/module_registry.dart';
 import '../core/repositories/book_repository.dart';
 import '../core/repositories/volume_repository.dart';
@@ -27,9 +27,6 @@ final databaseServiceProvider = Provider<DatabaseService>((ref) {
   return DatabaseService.instance;
 });
 
-final eventBusProvider = Provider<EventBus>((ref) {
-  return EventBus();
-});
 
 final moduleRegistryProvider = Provider<ModuleRegistry>((ref) {
   return ModuleRegistry();
@@ -285,7 +282,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
             createdAt: book.createdAt,
             updatedAt: book.updatedAt,
           );
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
   void _syncVolumeToDb(Volume volume, String bookId) {
@@ -298,7 +295,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
             createdAt: volume.createdAt,
             updatedAt: volume.updatedAt,
           );
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
   void _syncChapterToDb(Chapter chapter, String volumeId) {
@@ -314,29 +311,36 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
             sortOrder: 0,
             summary: chapter.summary,
             status: 'draft',
-            wordCount: chapter.content.replaceAll(RegExp(r'\s'), '').length,
+            wordCount: () {
+              int count = 0;
+              for (int i = 0; i < chapter.content.length; i++) {
+                final c = chapter.content.codeUnitAt(i);
+                if (c != 0x20 && c != 0x0A && c != 0x0D && c != 0x09) count++;
+              }
+              return count;
+            }(),
             createdAt: chapter.createdAt,
             updatedAt: chapter.updatedAt,
           );
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
   void _deleteBookFromDb(String bookId) {
     try {
       ref.read(bookRepoProvider).delete(bookId);
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
   void _deleteVolumeFromDb(String volumeId) {
     try {
       ref.read(volumeRepoProvider).delete(volumeId);
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
   void _deleteChapterFromDb(String chapterId) {
     try {
       ref.read(chapterRepoProvider).delete(chapterId);
-    } catch (_) {}
+    } catch (e) { debugPrint('DB sync error: $e'); }
   }
 }
 

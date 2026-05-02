@@ -28,6 +28,7 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
   OutlineNode _currentNode;
   final List<String> _breadcrumb = [];
   bool _isLoading = true;
+  String? _error;
 
   _OutlineVisualPreviewState() : _currentNode = OutlineNode(id: '', title: '', createdAt: DateTime.now(), updatedAt: DateTime.now());
 
@@ -39,19 +40,27 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
   }
 
   Future<void> _loadChildren() async {
-    setState(() => _isLoading = true);
-    final children = await widget.repo.getChildren(
-      _currentNode.id,
-      bookId: widget.bookId,
-    );
-    if (!mounted) return;
-    final node = await widget.repo.getById(_currentNode.id);
-    if (!mounted) return;
-    setState(() {
-      if (node != null) _currentNode = node;
-      _children = children;
-      _isLoading = false;
-    });
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      final children = await widget.repo.getChildren(
+        _currentNode.id,
+        bookId: widget.bookId,
+      );
+      if (!mounted) return;
+      final node = await widget.repo.getById(_currentNode.id);
+      if (!mounted) return;
+      setState(() {
+        if (node != null) _currentNode = node;
+        _children = children;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = e.toString();
+      });
+    }
   }
 
   void _navigateToChild(OutlineNode child) {
@@ -144,6 +153,29 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
   Widget _buildCanvas(BuildContext context) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 48,
+                color: Theme.of(context).colorScheme.error.withAlpha(150)),
+            const SizedBox(height: 12),
+            Text('加载失败',
+                style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.error)),
+            const SizedBox(height: 4),
+            Text(_error!, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loadChildren,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
+      );
     }
     if (_children.isEmpty) {
       return Center(
