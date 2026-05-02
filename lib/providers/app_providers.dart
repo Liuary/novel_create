@@ -86,6 +86,12 @@ final onExitSaveProvider = StateProvider<Future<void> Function()?>(
 /// 侧边栏当前选中的 Tab: 'tree' 或 'knowledge'
 final sidebarTabProvider = StateProvider<String>((ref) => 'tree');
 
+/// 知识库面板当前激活的模块ID，null 表示未选择
+final activeKnowledgeModuleIdProvider = StateProvider<String?>((ref) => null);
+
+/// 拖拽排序模式开关
+final dragModeProvider = StateProvider<bool>((ref) => false);
+
 /// 自动打开编辑器内联搜索的查询词（由侧边栏搜索结果触发）
 final autoInlineSearchProvider = StateProvider<String?>((ref) => null);
 
@@ -183,6 +189,27 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     }
   }
 
+  Future<void> reorderVolume(String bookId, int oldIndex, int newIndex) async {
+    final storage = ref.read(storageServiceProvider);
+    final book = await storage.loadBook(bookId);
+    if (book == null) return;
+    final item = book.volumeIds.removeAt(oldIndex);
+    book.volumeIds.insert(newIndex.clamp(0, book.volumeIds.length), item);
+    book.updatedAt = DateTime.now();
+    await storage.saveBook(book);
+    ref.invalidateSelf();
+  }
+
+  Future<void> reorderVolumes(String bookId, List<String> newOrder) async {
+    final storage = ref.read(storageServiceProvider);
+    final book = await storage.loadBook(bookId);
+    if (book == null) return;
+    book.volumeIds = List.from(newOrder);
+    book.updatedAt = DateTime.now();
+    await storage.saveBook(book);
+    ref.invalidateSelf();
+  }
+
   Future<void> renameChapter(
       String bookId, String volumeId, String chapterId, String newTitle) async {
     final storage = ref.read(storageServiceProvider);
@@ -193,6 +220,29 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       await storage.saveChapter(bookId, volumeId, chapter);
       _syncChapterToDb(chapter, volumeId);
     }
+    ref.invalidateSelf();
+  }
+
+  Future<void> reorderChapter(
+      String bookId, String volumeId, int oldIndex, int newIndex) async {
+    final storage = ref.read(storageServiceProvider);
+    final volume = await storage.loadVolume(bookId, volumeId);
+    if (volume == null) return;
+    final item = volume.chapterIds.removeAt(oldIndex);
+    volume.chapterIds.insert(newIndex.clamp(0, volume.chapterIds.length), item);
+    volume.updatedAt = DateTime.now();
+    await storage.saveVolume(bookId, volume);
+    ref.invalidateSelf();
+  }
+
+  Future<void> reorderChapters(
+      String bookId, String volumeId, List<String> newOrder) async {
+    final storage = ref.read(storageServiceProvider);
+    final volume = await storage.loadVolume(bookId, volumeId);
+    if (volume == null) return;
+    volume.chapterIds = List.from(newOrder);
+    volume.updatedAt = DateTime.now();
+    await storage.saveVolume(bookId, volume);
     ref.invalidateSelf();
   }
 
@@ -286,6 +336,16 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       ref.read(chapterRepoProvider).delete(chapterId);
     } catch (_) {}
   }
+}
+
+/// 在已有名称列表中找到不重名的名称：基名 → 基名2 → 基名3...
+String findAvailableName(String base, List<String> existing) {
+  if (!existing.contains(base)) return base;
+  int i = 2;
+  while (existing.contains('$base$i')) {
+    i++;
+  }
+  return '$base$i';
 }
 
 /// 当前选中的书籍ID

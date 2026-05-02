@@ -76,6 +76,17 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final currentChapterId = ref.watch(currentChapterIdProvider);
+    final activeModuleId = ref.watch(activeKnowledgeModuleIdProvider);
+    final registry = ref.watch(moduleRegistryProvider);
+
+    Widget mainContent;
+    if (activeModuleId != null) {
+      final module = registry.getById(activeModuleId);
+      mainContent = module?.buildEditor(context) ??
+          const Center(child: Text('模块编辑器不可用'));
+    } else {
+      mainContent = const EditorPage();
+    }
 
     return Scaffold(
       body: Stack(
@@ -83,7 +94,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           Row(
             children: [
               const Sidebar(),
-              Expanded(child: EditorPage()),
+              Expanded(child: mainContent),
               if (_inspectorVisible)
                 _buildInspectorPanel(context, currentChapterId),
             ],

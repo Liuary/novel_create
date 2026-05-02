@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/book.dart';
 import '../models/volume.dart';
@@ -329,6 +330,7 @@ class _SidebarState extends ConsumerState<Sidebar> {
 
   Widget _buildTabBar(
       BuildContext context, WidgetRef ref, String currentTab, ThemeData theme) {
+    final dragMode = ref.watch(dragModeProvider);
     return Container(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: theme.dividerColor)),
@@ -381,6 +383,21 @@ class _SidebarState extends ConsumerState<Sidebar> {
                         : null,
                   ),
                 ),
+              ),
+            ),
+          ),
+          Container(width: 1, color: theme.dividerColor, height: 24),
+          GestureDetector(
+            onTap: () =>
+                ref.read(dragModeProvider.notifier).state = !dragMode,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Icon(
+                Icons.reorder,
+                size: 18,
+                color: dragMode
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outline.withAlpha(80),
               ),
             ),
           ),
@@ -529,10 +546,20 @@ class _SidebarState extends ConsumerState<Sidebar> {
 
   void _showCreateVolumeDialog(
       BuildContext context, WidgetRef ref, String bookId) {
+    final storage = ref.read(storageServiceProvider);
+    final controller = TextEditingController();
+    Future.microtask(() async {
+      final book = await storage.loadBook(bookId);
+      if (book == null || controller.text.isNotEmpty) return;
+      final volumes = await storage.loadVolumes(bookId, book.volumeIds);
+      final existingNames = volumes.map((v) => v.title).toList();
+      controller.text = findAvailableName('新卷', existingNames);
+    });
     _showTextInputDialog(
       context: context,
       title: '新建卷',
       hintText: '卷名称',
+      controller: controller,
       onConfirm: (title) async {
         await ref.read(bookListProvider.notifier).createVolume(bookId, title);
       },
@@ -544,17 +571,27 @@ class _SidebarState extends ConsumerState<Sidebar> {
     required String title,
     String? hintText,
     String initialValue = '',
+    TextEditingController? controller,
     required FutureOr<void> Function(String) onConfirm,
   }) {
-    final controller = TextEditingController(text: initialValue);
+    final ctrl = controller ?? TextEditingController(text: initialValue);
+    doConfirm() async {
+      final text = ctrl.text.trim();
+      if (text.isNotEmpty) {
+        await onConfirm(text);
+        if (context.mounted) Navigator.pop(context);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: TextField(
-          controller: controller,
+          controller: ctrl,
           autofocus: true,
           decoration: InputDecoration(hintText: hintText),
+          onSubmitted: (_) => doConfirm(),
         ),
         actions: [
           TextButton(
@@ -562,13 +599,7 @@ class _SidebarState extends ConsumerState<Sidebar> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () async {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                await onConfirm(text);
-                if (ctx.mounted) Navigator.pop(ctx);
-              }
-            },
+            onPressed: doConfirm,
             child: const Text('确定'),
           ),
         ],
@@ -606,88 +637,139 @@ class _SidebarState extends ConsumerState<Sidebar> {
 
 // ==================== 知识库面板 ====================
 
-class _KnowledgeBasePanel extends StatelessWidget {
+class _KnowledgeBasePanel extends ConsumerStatefulWidget {
   final String? currentBookId;
   const _KnowledgeBasePanel({required this.currentBookId});
 
   @override
+  ConsumerState<_KnowledgeBasePanel> createState() =>
+      _KnowledgeBasePanelState();
+}
+
+class _KnowledgeBasePanelState extends ConsumerState<_KnowledgeBasePanel> {
+  String? _activeModuleId;
+
+  @override
   Widget build(BuildContext context) {
+    final registry = ref.watch(moduleRegistryProvider);
+    final modules = registry.modules;
+
+    if (_activeModuleId != null) {
+      final module = registry.getById(_activeModuleId!);
+      if (module != null) {
+        final nav = module.buildNavigationPanel(context);
+        if (nav != null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        setState(() => _activeModuleId = null);
+                        ref.read(activeKnowledgeModuleIdProvider.notifier).state = null;
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.arrow_back, size: 16,
+                              color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 4),
+                          Text('返回',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.primary)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(module.displayName,
+                        style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(child: nav),
+            ],
+          );
+        }
+      }
+    }
+
+    if (modules.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.library_books_outlined, size: 40,
+                color: Theme.of(context).colorScheme.outline.withAlpha(80)),
+            const SizedBox(height: 8),
+            Text('暂无知识库模块',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.outline,
+                    fontSize: 12)),
+          ],
+        ),
+      );
+    }
+
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSection(
-          context: context,
-          theme: theme,
-          title: '公共知识库',
-          subtitle: '所有书籍共享',
-          enabled: true,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Text('知识库模块',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary)),
         ),
+        const Divider(height: 1),
+        ...modules.map((m) => ListTile(
+              dense: true,
+              leading: Icon(_moduleIcon(m.moduleId), size: 20),
+              title: Text(m.displayName, style: const TextStyle(fontSize: 13)),
+              onTap: () {
+                setState(() => _activeModuleId = m.moduleId);
+                ref.read(activeKnowledgeModuleIdProvider.notifier).state = m.moduleId;
+              },
+            )),
         Divider(height: 1, color: theme.dividerColor),
-        _buildSection(
-          context: context,
-          theme: theme,
-          title: '私有知识库',
-          subtitle: currentBookId != null ? '仅当前书籍可用' : '请先选择书籍',
-          enabled: currentBookId != null,
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            widget.currentBookId != null
+                ? '当前书籍的私有知识库'
+                : '请先选择书籍以使用私有知识库',
+            style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.outline.withAlpha(128)),
+            textAlign: TextAlign.center,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildSection({
-    required BuildContext context,
-    required ThemeData theme,
-    required String title,
-    required String subtitle,
-    required bool enabled,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.library_books_outlined,
-            size: 40,
-            color: enabled
-                ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                : theme.colorScheme.outline.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: enabled ? null : theme.colorScheme.outline,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: enabled
-                  ? Colors.grey
-                  : theme.colorScheme.outline.withValues(alpha: 0.5),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '知识库模块将在后续阶段接入',
-            style: TextStyle(
-              fontSize: 11,
-              color: enabled
-                  ? theme.colorScheme.outline
-                  : theme.colorScheme.outline.withValues(alpha: 0.3),
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
+  IconData _moduleIcon(String moduleId) {
+    switch (moduleId) {
+      case 'outline':
+        return Icons.account_tree_outlined;
+      case 'character':
+        return Icons.person_outline;
+      case 'world':
+        return Icons.public_outlined;
+      case 'inspiration':
+        return Icons.lightbulb_outline;
+      case 'item':
+        return Icons.category_outlined;
+      default:
+        return Icons.widgets_outlined;
+    }
   }
 }
 
@@ -804,14 +886,82 @@ class _BookListView extends ConsumerWidget {
 
 // ==================== 卷和章树 ====================
 
-class _BookVolumeChapterTree extends ConsumerWidget {
+class _BookVolumeChapterTree extends ConsumerStatefulWidget {
   final Book book;
   final void Function(List<Volume>) onSearch;
   const _BookVolumeChapterTree({required this.book, required this.onSearch});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (book.volumeIds.isEmpty) {
+  ConsumerState<_BookVolumeChapterTree> createState() =>
+      _BookVolumeChapterTreeState();
+}
+
+class _BookVolumeChapterTreeState
+    extends ConsumerState<_BookVolumeChapterTree> {
+  List<Volume> _volumes = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVolumes();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BookVolumeChapterTree oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.book.id != widget.book.id ||
+        oldWidget.book.volumeIds != widget.book.volumeIds) {
+      _loadVolumes();
+    }
+  }
+
+  Future<void> _loadVolumes() async {
+    final storage = ref.read(storageServiceProvider);
+    final vols = await storage.loadVolumes(widget.book.id, widget.book.volumeIds);
+    if (!mounted) return;
+    setState(() {
+      _volumes = vols;
+      _loading = false;
+    });
+  }
+
+  void _reorderVolumes(int oldIndex, int newIndex) {
+    setState(() {
+      final item = _volumes.removeAt(oldIndex);
+      _volumes.insert(newIndex.clamp(0, _volumes.length), item);
+    });
+    _persistVolumeOrder();
+  }
+
+  void _moveVolumeUp(int index) {
+    setState(() {
+      final item = _volumes.removeAt(index);
+      _volumes.insert(index - 1, item);
+    });
+    _persistVolumeOrder();
+  }
+
+  void _moveVolumeDown(int index) {
+    setState(() {
+      final item = _volumes.removeAt(index);
+      _volumes.insert(index + 1, item);
+    });
+    _persistVolumeOrder();
+  }
+
+  void _persistVolumeOrder() {
+    ref.read(bookListProvider.notifier).reorderVolumes(
+          widget.book.id, _volumes.map((v) => v.id).toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = widget.book;
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_volumes.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16),
@@ -820,68 +970,111 @@ class _BookVolumeChapterTree extends ConsumerWidget {
         ),
       );
     }
-    final storage = ref.watch(storageServiceProvider);
-    final currentVolumeId = ref.watch(currentVolumeIdProvider);
 
-    return FutureBuilder<List<Volume>>(
-      future: storage.loadVolumes(book.id, book.volumeIds),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return ListView(
-          children: snapshot.data!.map((vol) {
-            final isSelected = currentVolumeId == vol.id;
-            return Column(
-              children: [
-                _TreeItem(
-                  depth: 0,
-                  icon: Icons.folder,
-                  label: vol.title,
-                  isSelected: isSelected,
-                  onTap: () {
-                    ref.read(currentVolumeIdProvider.notifier).state = vol.id;
-                    ref.read(currentChapterIdProvider.notifier).state = null;
-                  },
-                  trailing: isSelected
-                      ? IconButton(
-                          icon: const Icon(Icons.add, size: 16),
-                          tooltip: '新建章节',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 24,
-                            minHeight: 24,
-                          ),
-                          onPressed: () {
-                            _showCreateChapterDialog(context, ref, vol);
-                          },
-                        )
-                      : null,
-                  menuItems: [
-                    _MenuItem('重命名', Icons.edit, () {
-                      _showRenameVolumeDialog(context, ref, vol);
-                    }),
-                    _MenuItem('新建章节', Icons.add, () {
+    final currentVolumeId = ref.watch(currentVolumeIdProvider);
+    final currentChapterId = ref.watch(currentChapterIdProvider);
+    final dragMode = ref.watch(dragModeProvider);
+
+    final selectedVolume = _volumes.cast<Volume?>().firstWhere(
+        (v) => v!.id == currentVolumeId, orElse: () => null);
+
+    final volumeItems = _volumes.asMap().entries.map((entry) {
+      final index = entry.key;
+      final vol = entry.value;
+      final isFirst = index == 0;
+      final isLast = index == _volumes.length - 1;
+      final isSelected = currentVolumeId == vol.id;
+      return Column(
+        key: Key(vol.id),
+        children: [
+          _TreeItem(
+            depth: 0,
+            icon: Icons.folder,
+            label: vol.title,
+            isSelected: isSelected,
+            leading: dragMode
+                ? ReorderableDragStartListener(
+                    index: index,
+                    child: Icon(Icons.drag_handle, size: 16,
+                        color: Theme.of(context).colorScheme.outline.withAlpha(120)),
+                  )
+                : null,
+            onTap: () {
+              ref.read(currentVolumeIdProvider.notifier).state = vol.id;
+              ref.read(currentChapterIdProvider.notifier).state = null;
+            },
+            trailing: isSelected
+                ? IconButton(
+                    icon: const Icon(Icons.add, size: 16),
+                    tooltip: '新建章节',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 24, minHeight: 24),
+                    onPressed: () {
                       _showCreateChapterDialog(context, ref, vol);
-                    }),
-                    _MenuItem('删除', Icons.delete, () {
-                      _showDeleteConfirmDialog(context, ref, vol);
-                    }),
-                  ],
-                ),
-                if (isSelected) _ChapterList(bookId: book.id, volume: vol),
-              ],
-            );
-          }).toList(),
-        );
+                    },
+                  )
+                : null,
+            menuItems: [
+              _MenuItem('重命名', Icons.edit, () {
+                _showRenameVolumeDialog(context, ref, vol);
+              }),
+              _MenuItem('新建章节', Icons.add, () {
+                _showCreateChapterDialog(context, ref, vol);
+              }),
+              if (!isFirst && !dragMode)
+                _MenuItem('上移', Icons.arrow_upward, () => _moveVolumeUp(index)),
+              if (!isLast && !dragMode)
+                _MenuItem('下移', Icons.arrow_downward, () => _moveVolumeDown(index)),
+              _MenuItem('删除', Icons.delete, () {
+                _showDeleteConfirmDialog(context, ref, vol);
+              }),
+            ],
+          ),
+          if (isSelected)
+            _ChapterList(bookId: b.id, volume: vol),
+        ],
+      );
+    }).toList();
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.f2): () {
+          if (currentChapterId != null && selectedVolume != null) {
+            _showRenameChapterByCid(
+                context, ref, b.id, selectedVolume.id, currentChapterId);
+          } else if (currentVolumeId != null && selectedVolume != null) {
+            _showRenameVolumeDialog(context, ref, selectedVolume);
+          }
+        },
       },
+      child: Focus(
+        autofocus: true,
+        child: dragMode
+            ? ReorderableListView(
+                buildDefaultDragHandles: false,
+                onReorder: _reorderVolumes,
+                children: volumeItems,
+              )
+            : ListView(children: volumeItems),
+      ),
     );
   }
 
   void _showRenameVolumeDialog(
       BuildContext context, WidgetRef ref, Volume volume) {
     final controller = TextEditingController(text: volume.title);
+    doRename() {
+      final newTitle = controller.text.trim();
+      if (newTitle.isNotEmpty) {
+        ref
+            .read(bookListProvider.notifier)
+            .renameVolume(widget.book.id, volume.id, newTitle);
+        Navigator.pop(context);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -890,6 +1083,7 @@ class _BookVolumeChapterTree extends ConsumerWidget {
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(hintText: '新名称'),
+          onSubmitted: (_) => doRename(),
         ),
         actions: [
           TextButton(
@@ -897,15 +1091,7 @@ class _BookVolumeChapterTree extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              final newTitle = controller.text.trim();
-              if (newTitle.isNotEmpty) {
-                ref
-                    .read(bookListProvider.notifier)
-                    .renameVolume(book.id, volume.id, newTitle);
-                Navigator.pop(ctx);
-              }
-            },
+            onPressed: doRename,
             child: const Text('确定'),
           ),
         ],
@@ -915,7 +1101,31 @@ class _BookVolumeChapterTree extends ConsumerWidget {
 
   void _showCreateChapterDialog(
       BuildContext context, WidgetRef ref, Volume volume) {
+    final storage = ref.read(storageServiceProvider);
     final controller = TextEditingController();
+    // 自动命名：异步加载已有章节名
+    Future.microtask(() async {
+      if (controller.text.isNotEmpty) return;
+      final chapters = await Future.wait(
+        volume.chapterIds.map((cid) => storage.loadChapter(widget.book.id, volume.id, cid)),
+      );
+      final existingNames =
+          chapters.whereType<Chapter>().map((c) => c.title).toList();
+      controller.text = findAvailableName('新章节', existingNames);
+    });
+
+    doCreate() async {
+      final title = controller.text.trim();
+      if (title.isNotEmpty) {
+        final chapter = await ref
+            .read(bookListProvider.notifier)
+            .createChapter(widget.book.id, volume.id, title);
+        ref.read(currentVolumeIdProvider.notifier).state = volume.id;
+        ref.read(currentChapterIdProvider.notifier).state = chapter.id;
+        if (context.mounted) Navigator.pop(context);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -924,6 +1134,7 @@ class _BookVolumeChapterTree extends ConsumerWidget {
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(hintText: '章节名称'),
+          onSubmitted: (_) => doCreate(),
         ),
         actions: [
           TextButton(
@@ -931,18 +1142,48 @@ class _BookVolumeChapterTree extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () async {
-              final title = controller.text.trim();
-              if (title.isNotEmpty) {
-                final chapter = await ref
-                    .read(bookListProvider.notifier)
-                    .createChapter(book.id, volume.id, title);
-                ref.read(currentVolumeIdProvider.notifier).state = volume.id;
-                ref.read(currentChapterIdProvider.notifier).state = chapter.id;
-                if (ctx.mounted) Navigator.pop(ctx);
-              }
-            },
+            onPressed: doCreate,
             child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRenameChapterByCid(BuildContext context, WidgetRef ref,
+      String bookId, String volumeId, String chapterId) async {
+    final storage = ref.read(storageServiceProvider);
+    final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
+    if (chapter == null || !context.mounted) return;
+    final controller = TextEditingController(text: chapter.title);
+    doRename() {
+      final newTitle = controller.text.trim();
+      if (newTitle.isNotEmpty) {
+        ref
+            .read(bookListProvider.notifier)
+            .renameChapter(bookId, volumeId, chapterId, newTitle);
+        Navigator.pop(context);
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名章节'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '新名称'),
+          onSubmitted: (_) => doRename(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: doRename,
+            child: const Text('确定'),
           ),
         ],
       ),
@@ -968,7 +1209,7 @@ class _BookVolumeChapterTree extends ConsumerWidget {
             onPressed: () async {
               await ref
                   .read(bookListProvider.notifier)
-                  .deleteVolume(book.id, volume.id);
+                  .deleteVolume(widget.book.id, volume.id);
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('删除'),
@@ -981,62 +1222,159 @@ class _BookVolumeChapterTree extends ConsumerWidget {
 
 // ==================== 章节列表 ====================
 
-class _ChapterList extends ConsumerWidget {
+class _ChapterList extends ConsumerStatefulWidget {
   final String bookId;
   final Volume volume;
   const _ChapterList({required this.bookId, required this.volume});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final storage = ref.watch(storageServiceProvider);
-    final currentChapterId = ref.watch(currentChapterIdProvider);
+  ConsumerState<_ChapterList> createState() => _ChapterListState();
+}
 
-    return FutureBuilder<List<Chapter>>(
-      future: Future.wait(
-        volume.chapterIds.map((cid) async {
-          final c = await storage.loadChapter(bookId, volume.id, cid);
-          return c ?? Chapter(id: cid, title: '(已删除)');
-        }),
-      ),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Padding(
-            padding: EdgeInsets.only(left: 28),
-            child: SizedBox(
-              height: 20,
-              width: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          );
-        }
-        return Column(
-          children: snapshot.data!.map((ch) {
-            return _TreeItem(
-              depth: 1,
-              icon: Icons.article,
-              label: ch.title,
-              isSelected: currentChapterId == ch.id,
-              onTap: () {
-                ref.read(currentChapterIdProvider.notifier).state = ch.id;
-              },
-              menuItems: [
-                _MenuItem('重命名', Icons.edit, () {
-                  _showRenameChapterDialog(context, ref, ch);
-                }),
-                _MenuItem('删除', Icons.delete, () {
-                  _showDeleteChapterDialog(context, ref, ch);
-                }),
-              ],
-            );
-          }).toList(),
-        );
-      },
+class _ChapterListState extends ConsumerState<_ChapterList> {
+  List<Chapter> _chapters = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChapters();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChapterList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.volume.id != widget.volume.id ||
+        oldWidget.volume.chapterIds != widget.volume.chapterIds) {
+      _loadChapters();
+    }
+  }
+
+  Future<void> _loadChapters() async {
+    final storage = ref.read(storageServiceProvider);
+    final chapters = await Future.wait(
+      widget.volume.chapterIds.map((cid) async {
+        final c =
+            await storage.loadChapter(widget.bookId, widget.volume.id, cid);
+        return c ?? Chapter(id: cid, title: '(已删除)');
+      }),
     );
+    if (!mounted) return;
+    setState(() {
+      _chapters = chapters;
+      _loading = false;
+    });
+  }
+
+  void _reorderChapters(int oldIndex, int newIndex) {
+    setState(() {
+      final item = _chapters.removeAt(oldIndex);
+      _chapters.insert(newIndex.clamp(0, _chapters.length), item);
+    });
+    _persistChapterOrder();
+  }
+
+  void _moveChapterUp(int index) {
+    setState(() {
+      final item = _chapters.removeAt(index);
+      _chapters.insert(index - 1, item);
+    });
+    _persistChapterOrder();
+  }
+
+  void _moveChapterDown(int index) {
+    setState(() {
+      final item = _chapters.removeAt(index);
+      _chapters.insert(index + 1, item);
+    });
+    _persistChapterOrder();
+  }
+
+  void _persistChapterOrder() {
+    ref.read(bookListProvider.notifier).reorderChapters(
+          widget.bookId,
+          widget.volume.id,
+          _chapters.map((c) => c.id).toList(),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.only(left: 28),
+        child: SizedBox(
+          height: 20, width: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (_chapters.isEmpty) return const SizedBox.shrink();
+
+    final currentChapterId = ref.watch(currentChapterIdProvider);
+    final dragMode = ref.watch(dragModeProvider);
+
+    final chapterItems = _chapters.asMap().entries.map((entry) {
+      final index = entry.key;
+      final ch = entry.value;
+      final isFirst = index == 0;
+      final isLast = index == _chapters.length - 1;
+      return _TreeItem(
+        key: Key(ch.id),
+        depth: 1,
+        icon: Icons.article,
+        label: ch.title,
+        isSelected: currentChapterId == ch.id,
+        leading: dragMode
+            ? ReorderableDragStartListener(
+                index: index,
+                child: Icon(Icons.drag_handle, size: 14,
+                    color: Theme.of(context).colorScheme.outline.withAlpha(100)),
+              )
+            : null,
+        onTap: () {
+          ref.read(currentChapterIdProvider.notifier).state = ch.id;
+        },
+        menuItems: [
+          _MenuItem('重命名', Icons.edit, () {
+            _showRenameChapterDialog(context, ref, ch);
+          }),
+          if (!isFirst && !dragMode)
+            _MenuItem('上移', Icons.arrow_upward, () => _moveChapterUp(index)),
+          if (!isLast && !dragMode)
+            _MenuItem('下移', Icons.arrow_downward, () => _moveChapterDown(index)),
+          _MenuItem('删除', Icons.delete, () {
+            _showDeleteChapterDialog(context, ref, ch);
+          }),
+        ],
+      );
+    }).toList();
+
+    if (dragMode) {
+      return ReorderableListView(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        buildDefaultDragHandles: false,
+        onReorder: _reorderChapters,
+        children: chapterItems,
+      );
+    }
+    return Column(children: chapterItems);
   }
 
   void _showRenameChapterDialog(
       BuildContext context, WidgetRef ref, Chapter ch) {
     final controller = TextEditingController(text: ch.title);
+    doRename() {
+      final newTitle = controller.text.trim();
+      if (newTitle.isNotEmpty) {
+        ref
+            .read(bookListProvider.notifier)
+            .renameChapter(widget.bookId, widget.volume.id, ch.id, newTitle);
+        Navigator.pop(context);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1045,6 +1383,7 @@ class _ChapterList extends ConsumerWidget {
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(hintText: '新名称'),
+          onSubmitted: (_) => doRename(),
         ),
         actions: [
           TextButton(
@@ -1052,15 +1391,7 @@ class _ChapterList extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              final newTitle = controller.text.trim();
-              if (newTitle.isNotEmpty) {
-                ref
-                    .read(bookListProvider.notifier)
-                    .renameChapter(bookId, volume.id, ch.id, newTitle);
-                Navigator.pop(ctx);
-              }
-            },
+            onPressed: doRename,
             child: const Text('确定'),
           ),
         ],
@@ -1090,7 +1421,7 @@ class _ChapterList extends ConsumerWidget {
               }
               await ref
                   .read(bookListProvider.notifier)
-                  .deleteChapter(bookId, volume.id, ch.id);
+                  .deleteChapter(widget.bookId, widget.volume.id, ch.id);
               if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('删除'),
@@ -1118,8 +1449,10 @@ class _TreeItem extends ConsumerWidget {
   final List<_MenuItem> menuItems;
   final int depth;
   final Widget? trailing;
+  final Widget? leading;
 
   const _TreeItem({
+    super.key,
     required this.icon,
     required this.label,
     required this.isSelected,
@@ -1127,6 +1460,7 @@ class _TreeItem extends ConsumerWidget {
     this.menuItems = const [],
     this.depth = 0,
     this.trailing,
+    this.leading,
   });
 
   @override
@@ -1156,6 +1490,7 @@ class _TreeItem extends ConsumerWidget {
             : null,
         child: Row(
           children: [
+            ?leading,
             Icon(icon, size: 16),
             const SizedBox(width: 8),
             Expanded(

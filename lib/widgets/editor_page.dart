@@ -85,7 +85,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
 
   @override
   void deactivate() {
-    ref.read(onExitSaveProvider.notifier).state = null;
+    final notifier = ref.read(onExitSaveProvider.notifier);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifier.state = null;
+    });
     super.deactivate();
   }
 
