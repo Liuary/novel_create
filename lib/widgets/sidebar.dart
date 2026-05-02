@@ -886,6 +886,32 @@ class _BookListView extends ConsumerWidget {
 
 // ==================== 卷和章树 ====================
 
+void _showRenameDialog(
+    BuildContext context, String title, String initialValue,
+    ValueChanged<String> onConfirm) {
+  final controller = TextEditingController(text: initialValue);
+  doConfirm() {
+    final text = controller.text.trim();
+    if (text.isNotEmpty) onConfirm(text);
+  }
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: '新名称'),
+        onSubmitted: (_) => doConfirm(),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+        FilledButton(onPressed: doConfirm, child: const Text('确定')),
+      ],
+    ),
+  );
+}
+
 class _BookVolumeChapterTree extends ConsumerStatefulWidget {
   final Book book;
   final void Function(List<Volume>) onSearch;
@@ -928,6 +954,7 @@ class _BookVolumeChapterTreeState
 
   void _reorderVolumes(int oldIndex, int newIndex) {
     setState(() {
+      if (oldIndex < newIndex) newIndex--;
       final item = _volumes.removeAt(oldIndex);
       _volumes.insert(newIndex.clamp(0, _volumes.length), item);
     });
@@ -935,6 +962,7 @@ class _BookVolumeChapterTreeState
   }
 
   void _moveVolumeUp(int index) {
+    if (index <= 0) return;
     setState(() {
       final item = _volumes.removeAt(index);
       _volumes.insert(index - 1, item);
@@ -943,6 +971,7 @@ class _BookVolumeChapterTreeState
   }
 
   void _moveVolumeDown(int index) {
+    if (index >= _volumes.length - 1) return;
     setState(() {
       final item = _volumes.removeAt(index);
       _volumes.insert(index + 1, item);
@@ -1062,28 +1091,23 @@ class _BookVolumeChapterTreeState
     );
   }
 
-  void _showRenameVolumeDialog(
-      BuildContext context, WidgetRef ref, Volume volume) {
-    final controller = TextEditingController(text: volume.title);
-    doRename() {
-      final newTitle = controller.text.trim();
-      if (newTitle.isNotEmpty) {
-        ref
-            .read(bookListProvider.notifier)
-            .renameVolume(widget.book.id, volume.id, newTitle);
-        Navigator.pop(context);
-      }
+  void _showRenameDialog(
+      BuildContext context, String title, String initialValue,
+      ValueChanged<String> onConfirm) {
+    final controller = TextEditingController(text: initialValue);
+    doConfirm() {
+      final text = controller.text.trim();
+      if (text.isNotEmpty) onConfirm(text);
     }
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('重命名卷'),
+        title: Text(title),
         content: TextField(
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(hintText: '新名称'),
-          onSubmitted: (_) => doRename(),
+          onSubmitted: (_) => doConfirm(),
         ),
         actions: [
           TextButton(
@@ -1091,12 +1115,21 @@ class _BookVolumeChapterTreeState
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: doRename,
+            onPressed: doConfirm,
             child: const Text('确定'),
           ),
         ],
       ),
     );
+  }
+
+  void _showRenameVolumeDialog(
+      BuildContext context, WidgetRef ref, Volume volume) {
+    _showRenameDialog(context, '重命名卷', volume.title, (newTitle) {
+      ref.read(bookListProvider.notifier)
+          .renameVolume(widget.book.id, volume.id, newTitle);
+      if (context.mounted) Navigator.pop(context);
+    });
   }
 
   void _showCreateChapterDialog(
@@ -1155,39 +1188,11 @@ class _BookVolumeChapterTreeState
     final storage = ref.read(storageServiceProvider);
     final chapter = await storage.loadChapter(bookId, volumeId, chapterId);
     if (chapter == null || !context.mounted) return;
-    final controller = TextEditingController(text: chapter.title);
-    doRename() {
-      final newTitle = controller.text.trim();
-      if (newTitle.isNotEmpty) {
-        ref
-            .read(bookListProvider.notifier)
-            .renameChapter(bookId, volumeId, chapterId, newTitle);
-        Navigator.pop(context);
-      }
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名章节'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '新名称'),
-          onSubmitted: (_) => doRename(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: doRename,
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
+    _showRenameDialog(context, '重命名章节', chapter.title, (newTitle) {
+      ref.read(bookListProvider.notifier)
+          .renameChapter(bookId, volumeId, chapterId, newTitle);
+      if (context.mounted) Navigator.pop(context);
+    });
   }
 
   void _showDeleteConfirmDialog(
@@ -1268,6 +1273,7 @@ class _ChapterListState extends ConsumerState<_ChapterList> {
 
   void _reorderChapters(int oldIndex, int newIndex) {
     setState(() {
+      if (oldIndex < newIndex) newIndex--;
       final item = _chapters.removeAt(oldIndex);
       _chapters.insert(newIndex.clamp(0, _chapters.length), item);
     });
@@ -1275,6 +1281,7 @@ class _ChapterListState extends ConsumerState<_ChapterList> {
   }
 
   void _moveChapterUp(int index) {
+    if (index <= 0) return;
     setState(() {
       final item = _chapters.removeAt(index);
       _chapters.insert(index - 1, item);
@@ -1283,6 +1290,7 @@ class _ChapterListState extends ConsumerState<_ChapterList> {
   }
 
   void _moveChapterDown(int index) {
+    if (index >= _chapters.length - 1) return;
     setState(() {
       final item = _chapters.removeAt(index);
       _chapters.insert(index + 1, item);
@@ -1364,39 +1372,11 @@ class _ChapterListState extends ConsumerState<_ChapterList> {
 
   void _showRenameChapterDialog(
       BuildContext context, WidgetRef ref, Chapter ch) {
-    final controller = TextEditingController(text: ch.title);
-    doRename() {
-      final newTitle = controller.text.trim();
-      if (newTitle.isNotEmpty) {
-        ref
-            .read(bookListProvider.notifier)
-            .renameChapter(widget.bookId, widget.volume.id, ch.id, newTitle);
-        Navigator.pop(context);
-      }
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名章节'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '新名称'),
-          onSubmitted: (_) => doRename(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: doRename,
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
+    _showRenameDialog(context, '重命名章节', ch.title, (newTitle) {
+      ref.read(bookListProvider.notifier)
+          .renameChapter(widget.bookId, widget.volume.id, ch.id, newTitle);
+      if (context.mounted) Navigator.pop(context);
+    });
   }
 
   void _showDeleteChapterDialog(

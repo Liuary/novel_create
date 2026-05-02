@@ -193,6 +193,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     final storage = ref.read(storageServiceProvider);
     final book = await storage.loadBook(bookId);
     if (book == null) return;
+    if (oldIndex < newIndex) newIndex--;
     final item = book.volumeIds.removeAt(oldIndex);
     book.volumeIds.insert(newIndex.clamp(0, book.volumeIds.length), item);
     book.updatedAt = DateTime.now();
@@ -228,6 +229,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     final storage = ref.read(storageServiceProvider);
     final volume = await storage.loadVolume(bookId, volumeId);
     if (volume == null) return;
+    if (oldIndex < newIndex) newIndex--;
     final item = volume.chapterIds.removeAt(oldIndex);
     volume.chapterIds.insert(newIndex.clamp(0, volume.chapterIds.length), item);
     volume.updatedAt = DateTime.now();

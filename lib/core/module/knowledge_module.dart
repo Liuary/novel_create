@@ -22,6 +22,7 @@ class SearchResult {
 abstract class KnowledgeModule {
   String get moduleId;
   String get displayName;
+  String get entityType;
 
   Future<void> initialize(ModuleContext context);
 

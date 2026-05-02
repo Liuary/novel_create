@@ -35,7 +35,8 @@ class OutlineRepository {
           ),
         );
     final db = await getById(id);
-    return db!;
+    if (db == null) throw StateError('节点创建后读取失败: $id');
+    return db;
   }
 
   Future<OutlineNode?> getById(String id) async {
@@ -107,22 +108,6 @@ class OutlineRepository {
     await update(node.copyWith(parentId: newParentId, sortOrder: newSortOrder));
   }
 
-  Future<void> swapWithAdjacent(String id, bool up, {String? bookId}) async {
-    final node = await getById(id);
-    if (node == null) return;
-    final siblings = node.parentId != null
-        ? await getChildren(node.parentId!, bookId: bookId)
-        : await getRoots(bookId: bookId);
-    final currentIndex = siblings.indexWhere((s) => s.id == id);
-    if (currentIndex < 0) return;
-    final targetIndex = up ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= siblings.length) return;
-    final target = siblings[targetIndex];
-    final tmpOrder = node.sortOrder;
-    await update(node.copyWith(sortOrder: target.sortOrder));
-    await update(target.copyWith(sortOrder: tmpOrder));
-  }
-
   Future<void> reorderSibling(String id, int newIndex, {String? bookId}) async {
     final node = await getById(id);
     if (node == null) return;
@@ -138,11 +123,13 @@ class OutlineRepository {
     final mutable = List<OutlineNode>.from(siblings);
     mutable.removeAt(currentIndex);
     mutable.insert(clampedIndex, node);
-    for (int i = 0; i < mutable.length; i++) {
-      if (mutable[i].sortOrder != i) {
-        await update(mutable[i].copyWith(sortOrder: i));
+    await _db.transaction(() async {
+      for (int i = 0; i < mutable.length; i++) {
+        if (mutable[i].sortOrder != i) {
+          await update(mutable[i].copyWith(sortOrder: i));
+        }
       }
-    }
+    });
   }
 
   Future<List<OutlineNode>> searchByKeyword(String query) {
@@ -154,11 +141,17 @@ class OutlineRepository {
         .then((rows) => rows.map(OutlineNode.fromDb).toList());
   }
 
-  Future<int> getNextSortOrder(String? parentId) async {
+  Future<int> getNextSortOrder(String? parentId, {String? bookId}) async {
     final children = parentId != null
-        ? await getChildren(parentId)
-        : await getRoots();
+        ? await getChildren(parentId, bookId: bookId)
+        : await getRoots(bookId: bookId);
     if (children.isEmpty) return 0;
     return children.last.sortOrder + 1;
+  }
+
+  Future<List<OutlineNode>> getAllUnfiltered() {
+    final q = _db.select(_db.outlineNodes);
+    q.orderBy([(t) => OrderingTerm.asc(t.sortOrder)]);
+    return q.get().then((rows) => rows.map(OutlineNode.fromDb).toList());
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import 'outline_node_model.dart';
 import 'widgets/outline_visual_preview.dart';
 
 class OutlineModule extends KnowledgeModule {
+  static const entityTypeValue = 'outline_node';
   late ModuleContext _context;
   late OutlineRepository _repo;
   final _uuid = const Uuid();
@@ -23,6 +25,9 @@ class OutlineModule extends KnowledgeModule {
 
   @override
   String get displayName => '大纲';
+
+  @override
+  String get entityType => entityTypeValue;
 
   @override
   Future<void> initialize(ModuleContext context) async {
@@ -49,7 +54,7 @@ class OutlineModule extends KnowledgeModule {
       toType: 'chapter',
       toId: chapterId,
     );
-    final outlineLinks = links.where((l) => l.fromType == 'outline_node');
+    final outlineLinks = links.where((l) => l.fromType == entityType);
     final nodes = <Map<String, dynamic>>[];
     for (final link in outlineLinks) {
       final node = await _repo.getById(link.fromId);
@@ -87,7 +92,7 @@ class OutlineModule extends KnowledgeModule {
       toId: chapterId,
     );
     for (final link in links) {
-      if (link.fromType == 'outline_node') {
+      if (link.fromType == entityType) {
         final node = await _repo.getById(link.fromId);
         if (node != null && node.status == 'writing') {
           await _repo.update(node.copyWith(status: 'done'));
@@ -126,7 +131,7 @@ class OutlineModule extends KnowledgeModule {
       String fromEntityId, String toEntityId, String linkType) async {
     if (linkType == 'bound_to') {
       await _context.linkRepo.create(
-        fromType: 'outline_node',
+        fromType: entityType,
         fromId: fromEntityId,
         toType: 'chapter',
         toId: toEntityId,
@@ -147,7 +152,7 @@ class OutlineModule extends KnowledgeModule {
         entityId: n.id,
         title: n.title,
         snippet: snippet,
-        entityType: 'outline_node',
+        entityType: entityType,
       );
     }).toList();
   }
@@ -218,7 +223,9 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
 
   Future<void> _loadNodes() async {
     final bookId = ref.read(currentBookIdProvider);
-    final nodes = await widget.repo.getAll(bookId: bookId);
+    final nodes = bookId != null
+        ? await widget.repo.getAll(bookId: bookId)
+        : await widget.repo.getAllUnfiltered();
     setState(() => _nodes = nodes);
   }
 
@@ -256,11 +263,20 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
       );
     }
 
+    final childrenMap = <String, bool>{};
+    for (final n in _nodes!) {
+      childrenMap[n.id] = false;
+    }
+    for (final n in _nodes!) {
+      if (n.parentId != null) {
+        childrenMap[n.parentId!] = true;
+      }
+    }
     final navNodes = _nodes!.map((n) => TreeNavNode(
       id: n.id,
       title: n.title,
       parentId: n.parentId,
-      hasChildren: _nodes!.any((child) => child.parentId == n.id),
+      hasChildren: childrenMap[n.id] ?? false,
       level: _getLevel(n),
     )).toList();
 
@@ -437,11 +453,14 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
   List<OutlineNode> _flattenVisible() {
     if (_nodes == null) return [];
     final result = <OutlineNode>[];
+    final visited = <String>{};
     void addChildren(String? parentId) {
       for (final n in _nodes!) {
         if (n.parentId == parentId) {
-          result.add(n);
-          addChildren(n.id);
+          if (visited.add(n.id)) {
+            result.add(n);
+            addChildren(n.id);
+          }
         }
       }
     }
@@ -450,8 +469,11 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
   }
 
   void _moveSibling(String id, bool up) {
-    final node = _nodes!.firstWhere((n) => n.id == id);
-    final siblings = _nodes!
+    final nodes = _nodes;
+    if (nodes == null) return;
+    final node = nodes.cast<OutlineNode?>().firstWhere((n) => n!.id == id, orElse: () => null);
+    if (node == null) return;
+    final siblings = nodes
         .where((n) => n.parentId == node.parentId)
         .toList()
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
@@ -462,8 +484,11 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
   }
 
   void _applySiblingReorder(String id, int targetAfterRemove) {
-    final node = _nodes!.firstWhere((n) => n.id == id);
-    final siblings = _nodes!
+    final nodes = _nodes;
+    if (nodes == null) return;
+    final node = nodes.cast<OutlineNode?>().firstWhere((n) => n!.id == id, orElse: () => null);
+    if (node == null) return;
+    final siblings = nodes
         .where((n) => n.parentId == node.parentId)
         .toList()
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
@@ -477,13 +502,14 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
     mutable.insert(clamped, node);
 
     setState(() {
+      final list = nodes;
       for (int i = 0; i < mutable.length; i++) {
         if (mutable[i].sortOrder != i) {
-          final idx = _nodes!.indexWhere((n) => n.id == mutable[i].id);
-          _nodes![idx] = mutable[i].copyWith(sortOrder: i);
+          final idx = list.indexWhere((n) => n.id == mutable[i].id);
+          list[idx] = mutable[i].copyWith(sortOrder: i);
         }
       }
-      _nodes!.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     });
     widget.repo
         .reorderSibling(id, clamped, bookId: ref.read(currentBookIdProvider));
@@ -620,23 +646,11 @@ class _OutlineEditorHostState extends ConsumerState<_OutlineEditorHost> {
     return Column(
       children: [
         _buildModeToggle(),
-        Expanded(
-          child: FutureBuilder<OutlineNode?>(
-            key: ValueKey(nodeId),
-            future: widget.repo.getById(nodeId),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData || snapshot.data == null) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              return OutlineVisualPreview(
-                key: ValueKey(nodeId),
-                repo: widget.repo,
-                bookId: ref.read(currentBookIdProvider),
-                rootNode: snapshot.data!,
-              );
-            },
-          ),
-        ),
+        Expanded(child: _PreviewNodeLoader(
+          repo: widget.repo,
+          nodeId: nodeId,
+          bookId: ref.read(currentBookIdProvider),
+        )),
       ],
     );
   }
@@ -714,6 +728,60 @@ class _ToggleChip extends StatelessWidget {
   }
 }
 
+class _PreviewNodeLoader extends StatefulWidget {
+  final OutlineRepository repo;
+  final String nodeId;
+  final String? bookId;
+
+  const _PreviewNodeLoader({
+    required this.repo,
+    required this.nodeId,
+    this.bookId,
+  });
+
+  @override
+  State<_PreviewNodeLoader> createState() => _PreviewNodeLoaderState();
+}
+
+class _PreviewNodeLoaderState extends State<_PreviewNodeLoader> {
+  Future<OutlineNode?>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PreviewNodeLoader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.nodeId != widget.nodeId) _load();
+  }
+
+  void _load() {
+    _future = widget.repo.getById(widget.nodeId);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<OutlineNode?>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return OutlineVisualPreview(
+          key: ValueKey(widget.nodeId),
+          repo: widget.repo,
+          bookId: widget.bookId,
+          rootNode: snapshot.data!,
+        );
+      },
+    );
+  }
+}
+
 class _OutlineNodeEditor extends StatefulWidget {
   final String nodeId;
   final OutlineRepository repo;
@@ -743,6 +811,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
   int _wordCount = 0;
   List<String>? _boundChapterIds;
   bool _isBound = false;
+  Timer? _saveTimer;
 
   @override
   void initState() {
@@ -758,6 +827,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
     _titleController.dispose();
     _descController.dispose();
     _wordCountController.dispose();
@@ -768,7 +838,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
     final node = await widget.repo.getById(widget.nodeId);
     if (node == null) return;
     final links = await widget.linkRepo.findByFrom(
-      fromType: 'outline_node',
+      fromType: OutlineModule.entityTypeValue,
       fromId: widget.nodeId,
     );
     final chapterLinks = links.where((l) => l.toType == 'chapter');
@@ -784,6 +854,11 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
       _isBound = widget.currentChapterId != null &&
           chapterLinks.any((l) => l.toId == widget.currentChapterId);
     });
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), _save);
   }
 
   Future<void> _save() async {
@@ -802,7 +877,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
   Future<void> _bindChapter() async {
     if (widget.currentChapterId == null) return;
     await widget.linkRepo.create(
-      fromType: 'outline_node',
+      fromType: OutlineModule.entityTypeValue,
       fromId: widget.nodeId,
       toType: 'chapter',
       toId: widget.currentChapterId!,
@@ -814,7 +889,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
   Future<void> _unbindChapter() async {
     if (widget.currentChapterId == null) return;
     final links = await widget.linkRepo.findByFrom(
-      fromType: 'outline_node',
+      fromType: OutlineModule.entityTypeValue,
       fromId: widget.nodeId,
     );
     for (final link in links) {
@@ -843,7 +918,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
                 hintText: '节点标题',
                 border: OutlineInputBorder(),
               ),
-              onChanged: (_) => _save(),
+              onChanged: (_) => _scheduleSave(),
             ),
             const SizedBox(height: 16),
             Row(
@@ -851,13 +926,13 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
                 _buildDropdown('类型', _type, ['main_arc', 'sub_arc', 'scene', 'free'],
                     (v) {
                   setState(() => _type = v);
-                  _save();
+                  _scheduleSave();
                 }),
                 const SizedBox(width: 16),
                 _buildDropdown('状态', _status, ['planning', 'writing', 'done'],
                     (v) {
                   setState(() => _status = v);
-                  _save();
+                  _scheduleSave();
                 }),
                 const SizedBox(width: 16),
                 SizedBox(
@@ -872,7 +947,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
                     controller: _wordCountController,
                     onChanged: (v) {
                       setState(() => _wordCount = int.tryParse(v) ?? 0);
-                      _save();
+                      _scheduleSave();
                     },
                   ),
                 ),
@@ -916,7 +991,7 @@ class _OutlineNodeEditorState extends State<_OutlineNodeEditor> {
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),
-              onChanged: (_) => _save(),
+              onChanged: (_) => _scheduleSave(),
             ),
           ],
         ),

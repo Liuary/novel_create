@@ -194,6 +194,7 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
                 hSpacing: hSpacing,
                 verticalOffset: verticalOffset,
                 centerY: centerY,
+                color: Theme.of(context).colorScheme.outline,
               ),
               child: Stack(
                 children: _children.asMap().entries.map((entry) {
@@ -378,6 +379,7 @@ class _BranchPainter extends CustomPainter {
   final double hSpacing;
   final double verticalOffset;
   final double centerY;
+  final Color color;
 
   _BranchPainter({
     required this.childCount,
@@ -386,6 +388,7 @@ class _BranchPainter extends CustomPainter {
     required this.hSpacing,
     required this.verticalOffset,
     required this.centerY,
+    required this.color,
   });
 
   @override
@@ -393,12 +396,12 @@ class _BranchPainter extends CustomPainter {
     if (childCount == 0) return;
 
     final linePaint = Paint()
-      ..color = Colors.grey.shade400
+      ..color = color.withAlpha(100)
       ..strokeWidth = 1.8
       ..style = PaintingStyle.stroke;
 
     final dotPaint = Paint()
-      ..color = Colors.grey.shade500
+      ..color = color.withAlpha(140)
       ..style = PaintingStyle.fill;
 
     // 中央水平线
@@ -434,5 +437,6 @@ class _BranchPainter extends CustomPainter {
       cardHeight != oldDelegate.cardHeight ||
       hSpacing != oldDelegate.hSpacing ||
       verticalOffset != oldDelegate.verticalOffset ||
-      centerY != oldDelegate.centerY;
+      centerY != oldDelegate.centerY ||
+      color != oldDelegate.color;
 }
