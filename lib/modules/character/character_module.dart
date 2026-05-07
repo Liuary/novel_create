@@ -93,6 +93,7 @@ class CharacterModule extends KnowledgeModule {
   @override
   Future<void> handleLink(
       String fromEntityId, String toEntityId, String linkType) async {
+    if (linkType != 'bound_to') return;
     await _context.linkRepo.create(
       fromType: entityTypeValue,
       fromId: fromEntityId,
@@ -182,6 +183,12 @@ class _CharacterListState extends ConsumerState<_CharacterList> {
 
   @override
   Widget build(BuildContext context) {
+    // 监听当前书籍变化，自动刷新角色列表
+    ref.listen<String?>(currentBookIdProvider, (prev, next) {
+      if (prev != next) {
+        _load();
+      }
+    });
     if (_loading) return const Center(child: CircularProgressIndicator());
     return Column(
       children: [

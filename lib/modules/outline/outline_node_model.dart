@@ -56,6 +56,9 @@ class OutlineNode {
         updatedAt: Value(updatedAt),
       );
 
+  static const _sentinel = Object();
+
+  /// 使用哨兵值区分"未传"和"显式传 null"。传入 null 会将 parentId 清空。
   OutlineNode copyWith({
     String? title,
     String? description,
@@ -63,12 +66,12 @@ class OutlineNode {
     String? type,
     int? sortOrder,
     String? status,
-    String? parentId,
+    Object? parentId = _sentinel,
   }) =>
       OutlineNode(
         id: id,
         bookId: bookId,
-        parentId: parentId ?? this.parentId,
+        parentId: identical(parentId, _sentinel) ? this.parentId : parentId as String?,
         title: title ?? this.title,
         description: description ?? this.description,
         expectedWordCount: expectedWordCount ?? this.expectedWordCount,

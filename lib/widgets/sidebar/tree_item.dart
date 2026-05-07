@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'menu_item.dart';
 
-class TreeItem extends ConsumerWidget {
+class TreeItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isSelected;
@@ -25,7 +24,7 @@ class TreeItem extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       onSecondaryTapDown: (details) {

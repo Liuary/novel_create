@@ -43,10 +43,16 @@ class ChapterRepository {
         );
   }
 
-  Future<void> delete(String id) =>
-      (_db.delete(_db.chapters)..where((t) => t.id.equals(id))).go();
+  Future<void> delete(String id) async {
+    await _db.transaction(() async {
+      await (_db.delete(_db.chapters)..where((t) => t.id.equals(id))).go();
+    });
+  }
 
-  Future<void> deleteByVolumeId(String volumeId) =>
-      (_db.delete(_db.chapters)..where((t) => t.volumeId.equals(volumeId)))
+  Future<void> deleteByVolumeId(String volumeId) async {
+    await _db.transaction(() async {
+      await (_db.delete(_db.chapters)..where((t) => t.volumeId.equals(volumeId)))
           .go();
+    });
+  }
 }

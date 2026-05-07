@@ -30,8 +30,11 @@ class BookRepository {
         );
   }
 
-  Future<void> delete(String id) =>
-      (_db.delete(_db.books)..where((t) => t.id.equals(id))).go();
+  Future<void> delete(String id) async {
+    await _db.transaction(() async {
+      await (_db.delete(_db.books)..where((t) => t.id.equals(id))).go();
+    });
+  }
 
   Future<int> count() async {
     final result = await _db.customSelect('SELECT COUNT(*) AS cnt FROM books').getSingle();

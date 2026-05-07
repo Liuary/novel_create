@@ -1,4 +1,5 @@
-﻿import 'package:flutter/foundation.dart';
+﻿import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:uuid/uuid.dart';
@@ -118,7 +119,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     final storage = ref.read(storageServiceProvider);
     final book = Book(id: _uuid.v4(), title: title);
     await storage.saveBook(book);
-    _syncBookToDb(book);
+    unawaited(_syncBookToDb(book));
     ref.invalidateSelf();
     return book;
   }
@@ -126,7 +127,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
   Future<void> deleteBook(String bookId) async {
     final storage = ref.read(storageServiceProvider);
     await storage.deleteBook(bookId);
-    _deleteBookFromDb(bookId);
+    unawaited(_deleteBookFromDb(bookId));
     ref.invalidateSelf();
   }
 
@@ -137,7 +138,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       book.title = newTitle;
       book.updatedAt = DateTime.now();
       await storage.saveBook(book);
-      _syncBookToDb(book);
+      unawaited(_syncBookToDb(book));
       ref.invalidateSelf();
     }
   }
@@ -153,7 +154,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     book.volumeIds.add(volume.id);
     book.updatedAt = DateTime.now();
     await storage.saveBook(book);
-    _syncVolumeToDb(volume, bookId);
+    unawaited(_syncVolumeToDb(volume, bookId));
     ref.invalidateSelf();
     return volume;
   }
@@ -169,7 +170,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       volume.updatedAt = DateTime.now();
       await storage.saveVolume(bookId, volume);
     }
-    _syncChapterToDb(chapter, volumeId);
+    unawaited(_syncChapterToDb(chapter, volumeId));
     ref.invalidateSelf();
     return chapter;
   }
@@ -181,7 +182,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       volume.title = newTitle;
       volume.updatedAt = DateTime.now();
       await storage.saveVolume(bookId, volume);
-      _syncVolumeToDb(volume, bookId);
+      unawaited(_syncVolumeToDb(volume, bookId));
       ref.invalidateSelf();
     }
   }
@@ -216,7 +217,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       chapter.title = newTitle;
       chapter.updatedAt = DateTime.now();
       await storage.saveChapter(bookId, volumeId, chapter);
-      _syncChapterToDb(chapter, volumeId);
+      unawaited(_syncChapterToDb(chapter, volumeId));
     }
     ref.invalidateSelf();
   }
@@ -248,7 +249,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
   Future<void> deleteVolume(String bookId, String volumeId) async {
     final storage = ref.read(storageServiceProvider);
     await storage.deleteVolume(bookId, volumeId);
-    _deleteVolumeFromDb(volumeId);
+    unawaited(_deleteVolumeFromDb(volumeId));
     final book = await storage.loadBook(bookId);
     if (book != null) {
       book.volumeIds.remove(volumeId);
@@ -262,7 +263,7 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
       String bookId, String volumeId, String chapterId) async {
     final storage = ref.read(storageServiceProvider);
     await storage.deleteChapter(bookId, volumeId, chapterId);
-    _deleteChapterFromDb(chapterId);
+    unawaited(_deleteChapterFromDb(chapterId));
     final volume = await storage.loadVolume(bookId, volumeId);
     if (volume != null) {
       volume.chapterIds.remove(chapterId);
@@ -274,9 +275,9 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
 
   // ==================== 数据库同步 ====================
 
-  void _syncBookToDb(Book book) {
+  Future<void> _syncBookToDb(Book book) async {
     try {
-      ref.read(bookRepoProvider).upsert(
+      await ref.read(bookRepoProvider).upsert(
             id: book.id,
             name: book.title,
             createdAt: book.createdAt,
@@ -285,9 +286,9 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
-  void _syncVolumeToDb(Volume volume, String bookId) {
+  Future<void> _syncVolumeToDb(Volume volume, String bookId) async {
     try {
-      ref.read(volumeRepoProvider).upsert(
+      await ref.read(volumeRepoProvider).upsert(
             id: volume.id,
             bookId: bookId,
             name: volume.title,
@@ -298,12 +299,12 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
-  void _syncChapterToDb(Chapter chapter, String volumeId) {
+  Future<void> _syncChapterToDb(Chapter chapter, String volumeId) async {
     try {
       final filePath = ref
           .read(storageServiceProvider)
           .dataDir;
-      ref.read(chapterRepoProvider).upsert(
+      await ref.read(chapterRepoProvider).upsert(
             id: chapter.id,
             volumeId: volumeId,
             name: chapter.title,
@@ -325,21 +326,21 @@ class BookListNotifier extends AsyncNotifier<List<Book>> {
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
-  void _deleteBookFromDb(String bookId) {
+  Future<void> _deleteBookFromDb(String bookId) async {
     try {
-      ref.read(bookRepoProvider).delete(bookId);
+      await ref.read(bookRepoProvider).delete(bookId);
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
-  void _deleteVolumeFromDb(String volumeId) {
+  Future<void> _deleteVolumeFromDb(String volumeId) async {
     try {
-      ref.read(volumeRepoProvider).delete(volumeId);
+      await ref.read(volumeRepoProvider).delete(volumeId);
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 
-  void _deleteChapterFromDb(String chapterId) {
+  Future<void> _deleteChapterFromDb(String chapterId) async {
     try {
-      ref.read(chapterRepoProvider).delete(chapterId);
+      await ref.read(chapterRepoProvider).delete(chapterId);
     } catch (e) { debugPrint('DB sync error: $e'); }
   }
 }

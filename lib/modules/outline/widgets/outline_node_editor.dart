@@ -64,6 +64,7 @@ class OutlineNodeEditorState extends State<OutlineNodeEditor> {
       fromType: 'outline_node',
       fromId: widget.nodeId,
     );
+    if (!mounted) return;
     final chapterLinks = links.where((l) => l.toType == 'chapter');
     setState(() {
       _node = node;

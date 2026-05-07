@@ -61,6 +61,8 @@ class Character {
         updatedAt: Value(updatedAt),
       );
 
+  static const _sentinel = Object();
+
   Character copyWith({
     String? name,
     String? aliases,
@@ -68,9 +70,9 @@ class Character {
     String? appearance,
     String? background,
     String? currentStatus,
-    String? locationId,
+    Object? locationId = _sentinel,
     bool? isDead,
-    String? bookId,
+    Object? bookId = _sentinel,
   }) =>
       Character(
         id: id,
@@ -80,9 +82,9 @@ class Character {
         appearance: appearance ?? this.appearance,
         background: background ?? this.background,
         currentStatus: currentStatus ?? this.currentStatus,
-        locationId: locationId ?? this.locationId,
+        locationId: identical(locationId, _sentinel) ? this.locationId : locationId as String?,
         isDead: isDead ?? this.isDead,
-        bookId: bookId ?? this.bookId,
+        bookId: identical(bookId, _sentinel) ? this.bookId : bookId as String?,
         createdAt: createdAt,
         updatedAt: DateTime.now(),
       );

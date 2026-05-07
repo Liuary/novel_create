@@ -34,9 +34,15 @@ class VolumeRepository {
         );
   }
 
-  Future<void> delete(String id) =>
-      (_db.delete(_db.volumes)..where((t) => t.id.equals(id))).go();
+  Future<void> delete(String id) async {
+    await _db.transaction(() async {
+      await (_db.delete(_db.volumes)..where((t) => t.id.equals(id))).go();
+    });
+  }
 
-  Future<void> deleteByBookId(String bookId) =>
-      (_db.delete(_db.volumes)..where((t) => t.bookId.equals(bookId))).go();
+  Future<void> deleteByBookId(String bookId) async {
+    await _db.transaction(() async {
+      await (_db.delete(_db.volumes)..where((t) => t.bookId.equals(bookId))).go();
+    });
+  }
 }

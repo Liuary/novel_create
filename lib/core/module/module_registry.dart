@@ -21,10 +21,9 @@ class ModuleRegistry {
     }
   }
 
+  /// 并行初始化所有已注册模块，减少启动延迟。
   Future<void> initializeAll(ModuleContext context) async {
-    for (final module in _modules) {
-      await module.initialize(context);
-    }
+    await Future.wait(_modules.map((m) => m.initialize(context)));
   }
 
   void disposeAll() {

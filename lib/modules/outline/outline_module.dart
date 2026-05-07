@@ -56,7 +56,7 @@ class OutlineModule extends KnowledgeModule {
             .getSingleOrNull();
         bookId = vol?.bookId;
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('获取章节 bookId 失败: $e'); }
 
     final links = await _context.linkRepo.findByTo(
       toType: 'chapter',
@@ -235,6 +235,7 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
     final nodes = bookId != null
         ? await widget.repo.getAll(bookId: bookId)
         : await widget.repo.getAllUnfiltered();
+    if (!mounted) return;
     setState(() => _nodes = nodes);
   }
 
@@ -245,6 +246,12 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
 
   @override
   Widget build(BuildContext context) {
+    // 监听当前书籍变化，自动刷新大纲树
+    ref.listen<String?>(currentBookIdProvider, (prev, next) {
+      if (prev != next) {
+        _loadNodes();
+      }
+    });
     if (_nodes == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -501,10 +508,10 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
     final si = siblings.indexWhere((s) => s.id == id);
     final ti = up ? si - 1 : si + 1;
     if (ti < 0 || ti >= siblings.length) return;
-    _applySiblingReorder(id, ti);
+    unawaited(_applySiblingReorder(id, ti));
   }
 
-  void _applySiblingReorder(String id, int targetAfterRemove) {
+  Future<void> _applySiblingReorder(String id, int targetAfterRemove) async {
     final nodes = _nodes;
     if (nodes == null) return;
     final node = nodes.cast<OutlineNode?>().firstWhere((n) => n!.id == id, orElse: () => null);
@@ -532,21 +539,22 @@ class _OutlineTreeNavState extends ConsumerState<_OutlineTreeNav> {
       }
       list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     });
-    widget.repo
-        .reorderSibling(id, clamped, bookId: ref.read(currentBookIdProvider));
+    // DB 写入失败时记录日志，UI 乐观更新保持响应
+    try {
+      await widget.repo
+          .reorderSibling(id, clamped, bookId: ref.read(currentBookIdProvider));
+    } catch (e) { debugPrint('大纲排序同步失败: $e'); }
   }
 
+  /// 计算节点在大纲树中的层级（根节点 level=0）。
   int _getLevel(OutlineNode node) {
     int level = 0;
     var current = node;
-    while (current.parentId != null) {
+    while (current.parentId != null && _nodes != null) {
+      final idx = _nodes!.indexWhere((n) => n.id == current.parentId);
+      if (idx < 0) break;
       level++;
-      final parent = _nodes?.firstWhere(
-        (n) => n.id == current.parentId,
-        orElse: () => current,
-      );
-      if (parent == null || parent == current) break;
-      current = parent;
+      current = _nodes![idx];
     }
     return level;
   }

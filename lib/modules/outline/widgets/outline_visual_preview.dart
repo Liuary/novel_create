@@ -25,12 +25,10 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
   static const _verticalOffset = 72.0;
 
   List<OutlineNode> _children = [];
-  OutlineNode _currentNode;
+  late OutlineNode _currentNode;
   final List<String> _breadcrumb = [];
   bool _isLoading = true;
   String? _error;
-
-  _OutlineVisualPreviewState() : _currentNode = OutlineNode(id: '', title: '', createdAt: DateTime.now(), updatedAt: DateTime.now());
 
   @override
   void initState() {
@@ -71,12 +69,15 @@ class _OutlineVisualPreviewState extends State<OutlineVisualPreview> {
     _loadChildren();
   }
 
-  void _goBack() {
+  Future<void> _goBack() async {
     if (_breadcrumb.isNotEmpty) {
       final parentId = _breadcrumb.removeLast();
-      setState(() {
-        _currentNode = OutlineNode(id: parentId, title: '', createdAt: DateTime.now(), updatedAt: DateTime.now());
-      });
+      setState(() => _isLoading = true);
+      final node = await widget.repo.getById(parentId);
+      if (!mounted) return;
+      if (node != null) {
+        setState(() => _currentNode = node);
+      }
       _loadChildren();
     } else if (_currentNode.parentId != null) {
       _goToParent();

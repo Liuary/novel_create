@@ -46,12 +46,11 @@ class OutlineRepository {
     return db == null ? null : OutlineNode.fromDb(db);
   }
 
+  /// 获取所有大纲节点。bookId 为 null 时返回全部节点（不按 bookId 过滤）。
   Future<List<OutlineNode>> getAll({String? bookId}) {
     final q = _db.select(_db.outlineNodes);
     if (bookId != null) {
       q.where((t) => t.bookId.equals(bookId));
-    } else {
-      q.where((t) => t.bookId.isNull());
     }
     q.orderBy([(t) => OrderingTerm.asc(t.sortOrder)]);
     return q.get().then((rows) => rows.map(OutlineNode.fromDb).toList());

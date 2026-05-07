@@ -664,15 +664,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final colors = configAsync.whenOrNull(
           data: (config) => config.annotationColorsHex,
         ) ??
-        const [
-          'FF5252',
-          'FF9800',
-          'FFEB3B',
-          '4CAF50',
-          '2196F3',
-          '3F51B5',
-          '9C27B0',
-        ];
+        annotationColorsHex;
 
     return Container(
       width: 310,
@@ -886,15 +878,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     final colors = configAsync.whenOrNull(
           data: (config) => config.annotationColorsHex,
         ) ??
-        const [
-          'FF5252',
-          'FF9800',
-          'FFEB3B',
-          '4CAF50',
-          '2196F3',
-          '3F51B5',
-          '9C27B0',
-        ];
+        annotationColorsHex;
 
     final candidates = colors.where((c) => counts.containsKey(c)).toList();
     if (candidates.isEmpty) return colors.first;

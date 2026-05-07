@@ -47,3 +47,5 @@ app.*.map.json
 # AI assistant private domain
 .ai/users/
 .ai/.info.json
+
+.kilo/
