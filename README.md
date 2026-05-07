@@ -13,6 +13,7 @@
 | AI 接入 | OpenAI 兼容 API（阶段3 规划） |
 | 开发环境 | VS Code + [Kilo](https://kilo.ai) AI 编程助手 |
 | AI 模型 | DeepSeek V4 Pro Max（设计+开发）、GLM 5.1（代码审阅） |
+| Agent 工作流 | [AI_Prompt](https://github.com/Liuary/AI_Prompt) Agent 工作流框架 |
 | 测试 | flutter_test + flutter_lints |
 
 ## 快速开始
